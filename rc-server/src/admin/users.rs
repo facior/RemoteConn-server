@@ -22,9 +22,23 @@ pub struct User {
     pub totp: Option<String>,
     #[serde(default)]
     pub created_unix: i64,
+    /// The main administrator: the only one who sees and installs server
+    /// updates. The first account created is the owner.
+    #[serde(default)]
+    pub owner: bool,
 }
 
 pub type Users = BTreeMap<String, User>;
+
+/// Name of the main administrator. Files from before roles existed have no
+/// marked owner: then the oldest account is.
+pub fn owner_of(users: &Users) -> Option<&str> {
+    users
+        .iter()
+        .find(|(_, u)| u.owner)
+        .or_else(|| users.iter().min_by_key(|(name, u)| (u.created_unix, *name)))
+        .map(|(name, _)| name.as_str())
+}
 
 pub fn path_in(data_dir: &Path) -> PathBuf {
     data_dir.join("panel-users.json")
@@ -130,6 +144,7 @@ mod tests {
                 hash: hash_password("correct horse battery"),
                 totp: None,
                 created_unix: 1,
+                owner: false,
             },
         );
         save(&dir, &users).unwrap();

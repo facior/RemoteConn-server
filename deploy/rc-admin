@@ -65,7 +65,12 @@ rc-admin - administracja serwerem RemoteConn
   restart                    restart usługi
   backup [katalog]           kopia danych i konfiguracji (domyślnie /root)
   audit                      dziennik działań administratora
-  update                     przebuduj z repozytorium i zrestartuj
+
+Aktualizacje (wydania = tagi vX.Y.Z w repozytorium na GitHubie):
+  update check               sprawdź, czy jest nowe wydanie (robi to też codziennie timer)
+  update [vX.Y.Z]            zainstaluj wydanie (domyślnie najnowsze); przy błędzie wraca poprzednia wersja
+  update status              stan ostatniej aktualizacji
+  Główny administrator może też zlecić aktualizację w panelu WWW (wymaga 2FA).
 
 Panel WWW (tylko 127.0.0.1, dostęp przez tunel SSH):
   panel setup                przewodnik: konto administratora panelu + 2FA
@@ -89,6 +94,153 @@ Konta użytkowników (łączenie bez hasła między własnymi komputerami):
 
 Blokady działają bez restartu (serwer sprawdza listę co kilka sekund).
 EOF
+}
+
+# ------------------------------------------------------------------ updates
+# Releases are tags vX.Y.Z in the repository. The check (daily timer) and the
+# installation (started by the panel's request file or by hand) run as root;
+# the server only reads the state files written here.
+
+UPDATE_AVAILABLE=update-available.json
+UPDATE_STATUS=update-status.json
+UPDATE_REQUEST=update-request.json
+UPDATE_LOG=/var/log/remoteconn-update.log
+VERSION_RE='^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+repo_dir() {
+    local repo
+    repo=$(grep -oP '^REPO_DIR=\K.*' "$INSTALL_CONF" 2>/dev/null || true)
+    [[ -n $repo && -f $repo/deploy/install.sh ]] \
+        || die "nie znaleziono repozytorium (REPO_DIR w $INSTALL_CONF)"
+    echo "$repo"
+}
+
+# git as root in a repository that may belong to another user.
+repo_git() {
+    local repo=$1
+    shift
+    git -c safe.directory="$repo" -C "$repo" "$@"
+}
+
+json_str() {
+    local s
+    s=$(printf '%s' "$1" | tr -d '\000-\010\013\014\016-\037')
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    s=${s//$'\t'/\\t}
+    s=${s//$'\r'/}
+    s=${s//$'\n'/\\n}
+    printf '"%s"' "$s"
+}
+
+# Writes a state file the (unprivileged) server can read.
+write_state() {
+    local name=$1 content=$2 tmp
+    tmp=$(mktemp "$DATA_DIR/.$name.XXXXXX")
+    printf '%s\n' "$content" >"$tmp"
+    chown "$SERVICE_USER:$SERVICE_USER" "$tmp"
+    chmod 0600 "$tmp"
+    mv "$tmp" "$DATA_DIR/$name"
+}
+
+set_update_status() {
+    local state=$1 version=$2 by=$3 message=$4 log=${5:-}
+    write_state "$UPDATE_STATUS" "{\"state\":$(json_str "$state"),\"version\":$(json_str "$version"),\"requested_by\":$(json_str "$by"),\"updated_unix\":$(date +%s),\"message\":$(json_str "$message"),\"log\":$(json_str "$log")}"
+}
+
+installed_version() {
+    server_cmd version 2>/dev/null || echo 0.0.0
+}
+
+# True when $1 (vX.Y.Z) is newer than $2 (X.Y.Z).
+version_newer() {
+    local a=${1#v} b=${2#v}
+    [[ $a != "$b" && $(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1) == "$a" ]]
+}
+
+latest_tag() {
+    repo_git "$1" tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E "$VERSION_RE" | head -n1
+}
+
+update_check() {
+    local repo latest notes error="" current
+    repo=$(repo_dir)
+    current=$(installed_version)
+    if ! error=$(repo_git "$repo" fetch --tags --force --quiet origin 2>&1); then
+        write_state "$UPDATE_AVAILABLE" "{\"latest\":\"\",\"checked_unix\":$(date +%s),\"notes\":\"\",\"error\":$(json_str "nie można pobrać wydań z repozytorium: ${error:0:300}")}"
+        echo "Nie można sprawdzić wydań: $error" >&2
+        return 1
+    fi
+    latest=$(latest_tag "$repo")
+    notes=""
+    [[ -n $latest ]] && notes=$(repo_git "$repo" tag -l --format='%(contents)' "$latest" | head -c 4000)
+    write_state "$UPDATE_AVAILABLE" "{\"latest\":$(json_str "$latest"),\"checked_unix\":$(date +%s),\"notes\":$(json_str "$notes"),\"error\":\"\"}"
+    if [[ -n $latest ]] && version_newer "$latest" "$current"; then
+        echo "Dostępne wydanie $latest (zainstalowana wersja $current)."
+    else
+        echo "Masz najnowszą wersję ($current)."
+    fi
+}
+
+# Installs release $1, requested by $2. Rolls back if the new version does
+# not start.
+update_apply() {
+    local version=$1 by=$2 repo current prev_ref
+    exec 9>/run/remoteconn-update.lock
+    flock -n 9 || die "aktualizacja już trwa"
+    repo=$(repo_dir)
+    current=$(installed_version)
+    [[ $version =~ $VERSION_RE ]] || die "nieprawidłowa wersja: $version"
+    repo_git "$repo" fetch --tags --force --quiet origin || true
+    if ! repo_git "$repo" rev-parse -q --verify "refs/tags/$version" >/dev/null; then
+        set_update_status failed "$version" "$by" "nie ma takiego wydania w repozytorium"
+        die "nie ma wydania $version"
+    fi
+    if ! version_newer "$version" "$current"; then
+        set_update_status failed "$version" "$by" "to nie jest nowsza wersja niż zainstalowana ($current)"
+        die "$version nie jest nowsza niż $current"
+    fi
+    audit "update $current -> $version (zlecił: $by)"
+    set_update_status running "$version" "$by" "budowanie nowej wersji"
+    prev_ref=$(repo_git "$repo" rev-parse HEAD)
+    cp -p "$BIN" "$BIN.prev"
+    if ! repo_git "$repo" checkout --quiet --detach "$version" 2>"$UPDATE_LOG"; then
+        set_update_status failed "$version" "$by" "nie można przełączyć repozytorium (lokalne zmiany?)" "$(tail -n 20 "$UPDATE_LOG")"
+        die "git checkout $version nie powiódł się (szczegóły: $UPDATE_LOG)"
+    fi
+    if bash "$repo/deploy/install.sh" --update >>"$UPDATE_LOG" 2>&1 \
+        && sleep 3 && systemctl is-active --quiet "$SERVICE" \
+        && [[ $(installed_version) == "${version#v}" ]]; then
+        set_update_status "done" "$version" "$by" "zainstalowano $version (poprzednio $current)"
+        audit "update done: $version"
+        echo "Zaktualizowano do $version."
+        update_check >/dev/null || true
+        return 0
+    fi
+    # Roll back: previous binary and sources.
+    cp -p "$BIN.prev" "$BIN"
+    repo_git "$repo" checkout --quiet --detach "$prev_ref" || true
+    systemctl restart "$SERVICE" || true
+    set_update_status failed "$version" "$by" "nowa wersja nie wystartowała; przywrócono $current" "$(tail -n 30 "$UPDATE_LOG")"
+    audit "update failed: $version, rolled back to $current"
+    die "aktualizacja do $version nie powiodła się, przywrócono $current (szczegóły: $UPDATE_LOG)"
+}
+
+# Run by remoteconn-update.service when the panel leaves a request.
+update_from_request() {
+    local file=$DATA_DIR/$UPDATE_REQUEST content version by
+    [[ -f $file ]] || return 0
+    content=$(head -c 4096 "$file")
+    # Removed first: the path unit would start again while it exists.
+    rm -f "$file"
+    version=$(grep -oP '"version"\s*:\s*"\K[^"]+' <<<"$content" | head -n1 || true)
+    by=$(grep -oP '"requested_by"\s*:\s*"\K[A-Za-z0-9._-]{1,32}(?=")' <<<"$content" | head -n1 || true)
+    [[ -n $by ]] || by=panel
+    if [[ ! $version =~ $VERSION_RE ]]; then
+        set_update_status failed "${version:0:20}" "$by" "nieprawidłowa prośba o aktualizację"
+        die "nieprawidłowa prośba o aktualizację"
+    fi
+    update_apply "$version" "$by"
 }
 
 # Guided setup: administrator account, then two-factor authentication.
@@ -336,11 +488,41 @@ case $cmd in
         echo "Zakładanie kont: $2"
         ;;
     update)
-        repo=$(grep -oP '^REPO_DIR=\K.*' "$INSTALL_CONF" 2>/dev/null || true)
-        [[ -n $repo && -f $repo/deploy/install.sh ]] \
-            || die "nie znaleziono repozytorium (zaktualizuj je i uruchom install.sh --update)"
-        # Through bash: archives made on Windows do not keep the executable bit.
-        bash "$repo/deploy/install.sh" --update
+        case ${1:-} in
+            check)
+                update_check
+                ;;
+            status)
+                if [[ -f $DATA_DIR/$UPDATE_STATUS ]]; then
+                    cat "$DATA_DIR/$UPDATE_STATUS"
+                else
+                    echo "Nie było jeszcze aktualizacji."
+                fi
+                echo "Zainstalowana wersja: $(installed_version)"
+                ;;
+            from-request)
+                # Started by remoteconn-update.service (panel request).
+                update_from_request
+                ;;
+            source)
+                # Rebuild whatever is checked out (development, no release).
+                repo=$(repo_dir)
+                audit "update source"
+                # Through bash: archives made on Windows do not keep the executable bit.
+                bash "$repo/deploy/install.sh" --update
+                ;;
+            "")
+                repo=$(repo_dir)
+                repo_git "$repo" fetch --tags --force --quiet origin
+                latest=$(latest_tag "$repo")
+                [[ -n $latest ]] || die "repozytorium nie ma jeszcze wydań (tagów vX.Y.Z); bieżący kod: rc-admin update source"
+                update_apply "$latest" "${SUDO_USER:-root}"
+                ;;
+            v*)
+                update_apply "$1" "${SUDO_USER:-root}"
+                ;;
+            *) die "użycie: rc-admin update [check|status|vX.Y.Z|source]" ;;
+        esac
         ;;
     help|-h|--help)
         usage

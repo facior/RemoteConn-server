@@ -29,6 +29,7 @@ fn add_user(dir: &Path, name: &str, totp: Option<String>) {
             hash: users::hash_password(PASSWORD),
             totp,
             created_unix: 0,
+            owner: false,
         },
     );
     users::save(dir, &all).unwrap();
@@ -268,6 +269,60 @@ async fn invites_and_accounts() {
             .is_err(),
         "disabled account cannot log in"
     );
+
+    server.stop();
+    drop(server);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn only_the_owner_with_2fa_requests_updates() {
+    let dir = temp_dir("updates");
+    let secret = totp::generate_secret();
+    add_user(&dir, "admin", Some(secret.clone())); // oldest account = owner
+    add_user(&dir, "zwykly", None);
+    std::fs::write(
+        dir.join("update-available.json"),
+        r#"{"latest":"v9.9.9","checked_unix":1,"notes":"","error":""}"#,
+    )
+    .unwrap();
+    let (server, base) = start(&dir).await;
+
+    let other = login(&base, "zwykly", PASSWORD, "").await.unwrap();
+    assert_eq!(other.get("/api/update").await.0, StatusCode::FORBIDDEN);
+    let (status, _) = other
+        .post("/api/update", json!({ "version": "v9.9.9" }))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let key = totp::base32_decode(&secret).unwrap();
+    let code = format!("{:06}", totp::code_at(&key, totp::step_of(now)));
+    let owner = login(&base, "admin", PASSWORD, &code).await.unwrap();
+    let (_, me) = owner.get("/api/me").await;
+    assert_eq!(me["owner"], true);
+    let (status, info) = owner.get("/api/update").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(info["update"], "v9.9.9");
+
+    // Only the version the check found can be requested.
+    let (status, _) = owner
+        .post("/api/update", json!({ "version": "v10.0.0" }))
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _) = owner
+        .post("/api/update", json!({ "version": "v9.9.9" }))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let request = std::fs::read_to_string(dir.join("update-request.json")).unwrap();
+    assert!(request.contains("v9.9.9") && request.contains("admin"));
+    let (status, _) = owner
+        .post("/api/update", json!({ "version": "v9.9.9" }))
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "one update at a time");
 
     server.stop();
     drop(server);

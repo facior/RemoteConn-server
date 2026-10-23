@@ -84,7 +84,7 @@ sudo rc-admin key rotate                # nowy klucz dostępu
 sudo rc-admin account invite "Anna"     # kod zaproszenia na konto (jednorazowy, 7 dni)
 sudo rc-admin panel setup               # konto do panelu WWW z 2FA (przewodnik, jak przy instalacji)
 sudo rc-admin backup ~                  # kopia danych i konfiguracji
-sudo rc-admin update                    # po git pull: przebudowa i restart
+sudo rc-admin update                    # zainstaluj najnowsze wydanie (też z panelu, przycisk dla głównego admina)
 sudo rc-admin help                      # wszystkie polecenia
 ```
 
@@ -112,6 +112,17 @@ opcjonalne 2FA (TOTP) i blokada po nieudanych próbach.
   fail2ban i automatyczne aktualizacje.
 
 Szczegóły (model zagrożeń, panel, konta, rozwiązywanie problemów): **[docs/SERWER.md](docs/SERWER.md)**.
+
+## Aktualizacje
+
+Serwer codziennie sprawdza, czy na GitHubie jest nowe wydanie (tag `vX.Y.Z`), ale sam niczego nie instaluje. Główny
+administrator (pierwsze konto panelu) widzi w panelu kartę „Aktualizacje serwera” i decyduje, czy zainstalować;
+do tego jego konto musi mieć 2FA. Instalację wykonuje osobna usługa systemowa: buduje wydanie, restartuje serwer,
+a jeśli nowa wersja nie wystartuje, przywraca poprzednią. Szczegóły w
+[docs/INSTALACJA-SERWERA.md](docs/INSTALACJA-SERWERA.md) (rozdział 11).
+
+Nowe wydanie: zmień `version` w `Cargo.toml` i wypchnij tag, np. `git tag -a v0.3.0 -m "opis zmian" && git push origin v0.3.0`.
+Opis z tagu widać w panelu przy aktualizacji.
 
 ## Zgodność z aplikacją
 

@@ -32,6 +32,8 @@ BIN=/usr/local/bin/rc-server
 ADMIN_BIN=/usr/local/sbin/rc-admin
 ADMIN_LOG=/var/log/remoteconn-admin.log
 UNIT_FILE=/etc/systemd/system/$SERVICE.service
+UPDATE_CHECK=remoteconn-update-check
+UPDATE_APPLY=remoteconn-update
 SYSCTL_FILE=/etc/sysctl.d/90-remoteconn.conf
 SSH_DROPIN=/etc/ssh/sshd_config.d/90-remoteconn-hardening.conf
 F2B_JAIL=/etc/fail2ban/jail.d/remoteconn-sshd.local
@@ -151,8 +153,9 @@ pkg_install() {
 # ----------------------------------------------------------------- uninstall
 uninstall() {
     info "Usuwanie serwera RemoteConn"
-    systemctl disable --now "$SERVICE" 2>/dev/null || true
-    rm -f "$UNIT_FILE" "$BIN" "$ADMIN_BIN" "$SYSCTL_FILE"
+    systemctl disable --now "$SERVICE" "$UPDATE_CHECK.timer" "$UPDATE_APPLY.path" 2>/dev/null || true
+    rm -f "$UNIT_FILE" "$BIN" "$BIN.prev" "$ADMIN_BIN" "$SYSCTL_FILE" \
+        /etc/systemd/system/"$UPDATE_CHECK".{service,timer} /etc/systemd/system/"$UPDATE_APPLY".{service,path}
     systemctl daemon-reload
     if command -v ufw >/dev/null; then
         local port
@@ -529,6 +532,58 @@ install_admin_tool() {
     ok "narzędzie administratora $ADMIN_BIN (tylko root, dziennik w $ADMIN_LOG)"
 }
 
+# Daily check for new releases (tags) and an updater started by the panel's
+# request file. Both run rc-admin as root; the server itself stays
+# unprivileged and only reads/writes small state files in its data directory.
+setup_update_units() {
+    cat >"/etc/systemd/system/$UPDATE_CHECK.service" <<EOF
+[Unit]
+Description=RemoteConn: check for a new server release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$ADMIN_BIN update check
+EOF
+    cat >"/etc/systemd/system/$UPDATE_CHECK.timer" <<EOF
+[Unit]
+Description=RemoteConn: daily check for a new server release
+
+[Timer]
+OnBootSec=15min
+OnCalendar=daily
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    cat >"/etc/systemd/system/$UPDATE_APPLY.service" <<EOF
+[Unit]
+Description=RemoteConn: install a server release requested in the admin panel
+
+[Service]
+Type=oneshot
+ExecStart=$ADMIN_BIN update from-request
+TimeoutStartSec=2h
+EOF
+    cat >"/etc/systemd/system/$UPDATE_APPLY.path" <<EOF
+[Unit]
+Description=RemoteConn: watch for update requests from the admin panel
+
+[Path]
+PathExists=$DATA_DIR/update-request.json
+Unit=$UPDATE_APPLY.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now "$UPDATE_CHECK.timer" "$UPDATE_APPLY.path" >/dev/null 2>&1
+    ok "aktualizacje: codzienne sprawdzanie wydań; instalację zleca główny administrator (panel) albo rc-admin update"
+}
+
 public_ip() {
     curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null \
         || hostname -I 2>/dev/null | awk '{print $1}'
@@ -592,6 +647,7 @@ case $MODE in
         build_server
         install_admin_tool
         ensure_panel_config
+        setup_update_units
         start_service
         echo "$(date -Is) $(logname 2>/dev/null || echo root) update" >>"$ADMIN_LOG"
         ok "zaktualizowano"
@@ -609,6 +665,8 @@ case $MODE in
         [[ $FAIL2BAN == 1 ]] && setup_fail2ban
         [[ $AUTO_UPDATES == 1 ]] && setup_auto_updates
         start_service
+        setup_update_units
+        "$ADMIN_BIN" update check >/dev/null 2>&1 || true
         echo "$(date -Is) $(logname 2>/dev/null || echo root) install port=$PORT" >>"$ADMIN_LOG"
         setup_panel
         write_credentials

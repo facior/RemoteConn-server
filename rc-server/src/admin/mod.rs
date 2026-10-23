@@ -15,6 +15,7 @@
 
 mod auth;
 pub mod totp;
+mod updates;
 pub mod users;
 
 use std::net::SocketAddr;
@@ -111,6 +112,7 @@ fn router(state: AppState) -> Router {
         .route("/api/block", post(block))
         .route("/api/unblock", post(unblock))
         .route("/api/events", get(events))
+        .route("/api/update", get(updates::status).post(updates::request))
         .route("/api/accounts", get(accounts))
         .route("/api/accounts/{name}/disable", post(account_disable))
         .route("/api/accounts/{name}/enable", post(account_enable))
@@ -249,9 +251,10 @@ async fn login(
         Ok(login) => {
             state.auth.audit(&login.user, peer.ip(), "logowanie");
             let cookie = auth::session_cookie(&login.token);
+            let owner = updates::is_owner(&state.server.data_dir, &login.user);
             (
                 [(header::SET_COOKIE, cookie)],
-                Json(json!({ "user": login.user, "csrf": login.csrf })),
+                Json(json!({ "user": login.user, "csrf": login.csrf, "owner": owner })),
             )
                 .into_response()
         }
@@ -269,8 +272,11 @@ async fn logout(State(state): State<AppState>, authed: Authed) -> Response {
         .into_response()
 }
 
-async fn me(authed: Authed) -> ApiResult {
-    Ok(Json(json!({ "user": authed.user, "csrf": authed.csrf })))
+async fn me(State(state): State<AppState>, authed: Authed) -> ApiResult {
+    let owner = updates::is_owner(&state.server.data_dir, &authed.user);
+    Ok(Json(
+        json!({ "user": authed.user, "csrf": authed.csrf, "owner": owner }),
+    ))
 }
 
 async fn overview(State(state): State<AppState>, _authed: Authed) -> ApiResult {

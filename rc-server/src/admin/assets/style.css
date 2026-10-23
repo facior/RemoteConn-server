@@ -48,6 +48,10 @@ code, .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
 .muted { color: var(--muted); }
 .error { color: var(--red); }
 .warn { color: var(--amber); font-weight: 600; }
+.ok-text { color: var(--green); font-weight: 600; }
+.update-card { display: flex; flex-direction: column; gap: 6px; }
+.update-card p { margin: 0; }
+.update-card button { align-self: flex-start; }
 .nowrap { white-space: nowrap; }
 
 .card {

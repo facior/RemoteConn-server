@@ -28,6 +28,8 @@ Admin panel accounts:
   rc-server panel-user totp <name>        enable 2FA (shows a QR code)
   rc-server panel-user totp-off <name>    disable 2FA
   rc-server panel-user remove <name>      delete (its sessions end at once)
+  rc-server panel-user owner <name>       make it the main administrator (updates)
+  rc-server version                       version of this server
 
 User accounts (passwordless access between a user's own devices):
   rc-server account list                  accounts and their devices
@@ -140,6 +142,10 @@ async fn main() -> Result<()> {
                 .map(|_| CHARS[rng.gen_range(0..CHARS.len())] as char)
                 .collect();
             println!("{key}");
+            Ok(())
+        }
+        ["version" | "--version"] => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         ["panel-user", rest @ ..] => panel_user(rest),
@@ -256,13 +262,19 @@ fn panel_user(args: &[&str]) -> Result<()> {
         .collect();
     match args.as_slice() {
         ["list"] => {
+            let owner = users::owner_of(&all).map(str::to_string);
             for (name, user) in &all {
                 let twofa = if user.totp.is_some() {
                     "2FA on"
                 } else {
                     "2FA off"
                 };
-                println!("{name}  {twofa}");
+                let role = if owner.as_deref() == Some(name.as_str()) {
+                    "  owner"
+                } else {
+                    ""
+                };
+                println!("{name}  {twofa}{role}");
             }
             eprintln!("{} account(s)", all.len());
             return Ok(());
@@ -275,6 +287,8 @@ fn panel_user(args: &[&str]) -> Result<()> {
                 return Err(format!("account exists: {name}").into());
             }
             let password = ask_new_password(from_stdin)?;
+            // The first account is the main administrator.
+            let owner = all.is_empty();
             all.insert(
                 name.to_string(),
                 users::User {
@@ -283,10 +297,15 @@ fn panel_user(args: &[&str]) -> Result<()> {
                     created_unix: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)?
                         .as_secs() as i64,
+                    owner,
                 },
             );
             users::save(&dir, &all)?;
-            println!("Utworzono konto panelu: {name}");
+            if owner {
+                println!("Utworzono konto panelu: {name} (główny administrator: widzi i instaluje aktualizacje)");
+            } else {
+                println!("Utworzono konto panelu: {name}");
+            }
         }
         ["passwd", name] => {
             let password = ask_new_password(from_stdin)?;
@@ -337,6 +356,16 @@ fn panel_user(args: &[&str]) -> Result<()> {
             println!(
                 "Włączono 2FA dla konta {name}. Przy logowaniu do panelu podaj kod z aplikacji."
             );
+        }
+        ["owner", name] => {
+            if !all.contains_key(*name) {
+                return Err("no such account".into());
+            }
+            for (n, user) in all.iter_mut() {
+                user.owner = n == name;
+            }
+            users::save(&dir, &all)?;
+            println!("Główny administrator: {name}");
         }
         ["totp-off", name] => {
             all.get_mut(*name).ok_or("no such account")?.totp = None;

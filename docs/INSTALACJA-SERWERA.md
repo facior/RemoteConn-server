@@ -280,11 +280,30 @@ scp admin@<IP-serwera>:~/remoteconn-backup-*.tar.gz .
 
 ## 11. Aktualizacja serwera
 
-1. **[serwer]** Pobierz nowszą wersję w katalogu z instalacji: `cd ~/RemoteConn-server && git pull`
-   (albo prześlij nowe archiwum jak w kroku 4 i rozpakuj je w to samo miejsce).
-2. **[serwer]** `sudo rc-admin update`
+Serwer raz dziennie sprawdza, czy w repozytorium na GitHubie jest nowe **wydanie** (tag `vX.Y.Z`). Sam niczego nie
+instaluje: decyduje **główny administrator**, czyli pierwsze konto panelu, założone przy instalacji.
 
-Klucz dostępu, ID urządzeń i certyfikat zostają bez zmian, więc aplikacje nie wymagają żadnej konfiguracji.
+- **W panelu WWW:** na stronie „Przegląd” główny administrator widzi kartę „Aktualizacje serwera” z wersją
+  zainstalowaną i dostępną oraz przyciskiem „Zaktualizuj”. Jego konto musi mieć włączone 2FA. Inni administratorzy
+  tej karty nie widzą.
+- **Z terminala:**
+  ```sh
+  sudo rc-admin update check      # sprawdź teraz
+  sudo rc-admin update            # zainstaluj najnowsze wydanie (albo: sudo rc-admin update v0.3.0)
+  sudo rc-admin update status     # jak poszła ostatnia aktualizacja
+  ```
+
+Aktualizacja przełącza repozytorium na wybrane wydanie, buduje serwer i uruchamia go ponownie. Trwa kilka minut, a
+trwające połączenia przez relay zostaną przerwane. Jeśli nowa wersja nie wystartuje, wraca poprzednia, a szczegóły
+są w `/var/log/remoteconn-update.log`. Klucz dostępu, ID urządzeń, konta i certyfikat zostają bez zmian, więc
+aplikacje nie wymagają żadnej konfiguracji.
+
+Główny administrator to rola pierwszego konta panelu. Przekazanie jej innemu kontu:
+`sudo rc-server panel-user owner <nazwa>` (z `RC_DATA_DIR=/var/lib/remoteconn`, jako użytkownik `remoteconn`) albo
+po prostu załóż konta w odpowiedniej kolejności.
+
+> Serwer zainstalowany przed wersją 0.2.0 nie ma jeszcze aktualizacji z panelu. Jednorazowo:
+> `cd ~/RemoteConn-server && sudo git pull && sudo rc-admin update`.
 
 ## 12. Przeprowadzka na inny serwer
 

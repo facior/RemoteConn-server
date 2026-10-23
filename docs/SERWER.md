@@ -141,7 +141,8 @@ Wszystkie polecenia wymagają `sudo`. Każda zmiana trafia do `/var/log/remoteco
 | `rc-admin restart` | restart usługi |
 | `rc-admin backup [katalog]` | kopia danych i konfiguracji (zawiera klucze, więc przechowuj bezpiecznie) |
 | `rc-admin audit` | dziennik działań administratora |
-| `rc-admin update` | przebudowa z repozytorium i restart |
+| `rc-admin update [vX.Y.Z]` | instalacja wydania (domyślnie najnowszego) z powrotem do poprzedniej wersji przy błędzie |
+| `rc-admin update check` / `update status` | sprawdzenie nowych wydań (robi to też codzienny timer) / wynik ostatniej aktualizacji |
 | `rc-admin panel setup` | przewodnik: konto administratora panelu + 2FA (to samo co przy instalacji) |
 | `rc-admin panel url` | polecenie tunelu SSH do panelu WWW |
 | `rc-admin panel user list\|add\|passwd\|totp\|totp-off\|remove <nazwa>` | konta panelu (hasło min. 12 znaków, 2FA z kodem QR) |

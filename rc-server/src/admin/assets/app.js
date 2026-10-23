@@ -5,6 +5,8 @@
 
 const $ = (sel) => document.querySelector(sel);
 let csrf = "";
+/** The main administrator sees and installs server updates. */
+let isOwner = false;
 let currentTab = "overview";
 let refreshTimer = null;
 
@@ -159,6 +161,7 @@ const loaders = {
       ...kv("Wpisy na liście blokad", o.blocklist),
       ...kv("Konta", `${o.accounts} (zakładanie: ${SIGNUP[o.signup] || o.signup})`),
     );
+    await renderUpdate();
   },
 
   async devices() {
@@ -312,6 +315,66 @@ async function act(promise, message) {
 
 const SIGNUP = { invite: "na zaproszenie", open: "otwarte dla każdego", off: "wyłączone" };
 
+// ---------- server updates (main administrator only) ----------
+
+const UPDATE_STATE = {
+  requested: "zlecona, czeka na uruchomienie",
+  running: "w toku (budowanie i restart, kilka minut)",
+  done: "zakończona",
+  failed: "nieudana, przywrócono poprzednią wersję",
+};
+
+async function renderUpdate() {
+  const card = $("#update-card");
+  if (!isOwner) {
+    card.hidden = true;
+    return;
+  }
+  const u = await api("/api/update");
+  const rows = [
+    el("h2", {}, "Aktualizacje serwera"),
+    el("p", {}, `Zainstalowana wersja: `, el("strong", {}, `v${u.current}`)),
+  ];
+  const a = u.available;
+  if (!a) {
+    rows.push(el("p", { class: "muted small" }, "Serwer jeszcze nie sprawdzał wydań (raz dziennie)."));
+  } else if (a.error) {
+    rows.push(el("p", { class: "error small" }, `Ostatnie sprawdzanie nie powiodło się: ${a.error}`));
+  } else {
+    rows.push(el("p", { class: "muted small" }, `Ostatnie sprawdzenie: ${formatTime(a.checked_unix)}`));
+  }
+  const s = u.status;
+  if (s && s.state) {
+    const cls = s.state === "failed" ? "error" : s.state === "done" ? "ok-text" : "";
+    rows.push(el("p", { class: cls }, `Aktualizacja do ${s.version}: ${UPDATE_STATE[s.state] || s.state}`,
+      s.message ? el("span", { class: "muted small" }, ` — ${s.message}`) : null));
+    if (s.state === "failed" && s.log) rows.push(el("pre", { class: "log" }, s.log));
+  }
+  const busy = u.pending || (s && (s.state === "requested" || s.state === "running"));
+  if (u.update && !busy) {
+    rows.push(el("p", {}, el("strong", {}, `Dostępna nowa wersja: ${u.update}`)));
+    if (a && a.notes) rows.push(el("pre", { class: "log" }, a.notes));
+    if (u.totp_enabled) {
+      rows.push(el("button", { class: "primary", onclick: () => startUpdate(u.update) }, `Zaktualizuj do ${u.update}`));
+      rows.push(el("p", { class: "muted small" },
+        "Serwer zbuduje nową wersję i uruchomi się ponownie (trwające połączenia przez relay zostaną przerwane). "
+        + "Jeśli nowa wersja nie wystartuje, wróci poprzednia."));
+    } else {
+      rows.push(el("p", { class: "warn" },
+        "Instalacja aktualizacji wymaga 2FA na Twoim koncie: sudo rc-admin panel user totp <nazwa>"));
+    }
+  } else if (!u.update && a && !a.error) {
+    rows.push(el("p", { class: "ok-text" }, "Masz najnowszą wersję."));
+  }
+  card.replaceChildren(...rows);
+  card.hidden = false;
+}
+
+function startUpdate(version) {
+  if (!confirm(`Zaktualizować serwer do ${version}? Serwer uruchomi się ponownie.`)) return;
+  act(api("/api/update", { version }), `Zlecono aktualizację do ${version}`);
+}
+
 function accountAction(name, action, question) {
   if (!confirm(question)) return;
   act(api(`/api/accounts/${encodeURIComponent(name)}/${action}`, {}),
@@ -359,6 +422,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         code: form.code.value.replace(/\s/g, ""),
       });
       csrf = data.csrf;
+      isOwner = !!data.owner;
       form.password.value = "";
       form.code.value = "";
       showApp(data.user);
@@ -420,6 +484,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (me.ok) {
       const data = await me.json();
       csrf = data.csrf;
+      isOwner = !!data.owner;
       showApp(data.user);
       return;
     }
