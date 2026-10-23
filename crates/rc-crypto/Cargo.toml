@@ -1,0 +1,18 @@
+[package]
+name = "rc-crypto"
+description = "RemoteConn device identity, Noise channel and password authentication"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+snow.workspace = true
+spake2.workspace = true
+x25519-dalek.workspace = true
+ed25519-dalek.workspace = true
+rand.workspace = true
+blake3.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+argon2 = "0.5"

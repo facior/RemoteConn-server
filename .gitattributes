@@ -1,0 +1,2 @@
+# LF everywhere: the Linux scripts break with CRLF, also when edited on Windows.
+* text=auto eol=lf

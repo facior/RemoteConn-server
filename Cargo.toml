@@ -1,0 +1,41 @@
+# RemoteConn server. crates/ holds the protocol shared with the app
+# (copied from the app repository by its scripts/sync-shared.ps1).
+[workspace]
+resolver = "2"
+members = ["rc-server", "crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Proprietary"
+rust-version = "1.85"
+
+[workspace.dependencies]
+rc-proto = { path = "crates/rc-proto" }
+rc-crypto = { path = "crates/rc-crypto" }
+rc-transport = { path = "crates/rc-transport" }
+rc-rendezvous = { path = "crates/rc-rendezvous" }
+
+prost = "0.13"
+prost-build = "0.13"
+protox = "0.7"
+snow = "0.9"
+spake2 = "0.4"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+blake3 = "1"
+zeroize = "1"
+thiserror = "2"
+bytes = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
+tracing = "0.1"
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging"] }
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }
+
+# Argon2 is deliberately slow; unoptimized it makes debug builds and tests crawl.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3

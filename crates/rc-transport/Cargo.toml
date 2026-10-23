@@ -1,0 +1,19 @@
+[package]
+name = "rc-transport"
+description = "RemoteConn QUIC transport with an end-to-end Noise channel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rc-proto.workspace = true
+rc-crypto.workspace = true
+quinn.workspace = true
+rustls.workspace = true
+rcgen.workspace = true
+bytes.workspace = true
+blake3.workspace = true
+prost.workspace = true
+tokio.workspace = true
+thiserror.workspace = true

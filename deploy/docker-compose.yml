@@ -1,0 +1,31 @@
+# Run from this directory: docker compose up -d
+# Open UDP 21116 in the server's firewall. Clients enter the server's
+# hostname or IP in Settings → "Serwer ID".
+#
+# Admin panel account:  docker compose exec rc-server rc-server panel-user add admin
+# Then from your computer: ssh -N -L 8080:127.0.0.1:8080 user@server
+# and open http://localhost:8080
+services:
+  rc-server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "21116:21116/udp"
+      # Admin panel on the host's loopback only (reach it via an SSH tunnel).
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - rc-data:/data
+    environment:
+      RUST_LOG: info
+      # Strongly recommended: clients must enter this key (Settings → Sieć).
+      # Without it anyone can register devices and use your relay.
+      RC_ACCESS_KEY: "zmien-na-dlugi-losowy-klucz"
+      # RC_MAX_RELAYS: "200"
+      # RC_MAX_CONN_PER_CLIENT: "32"
+      # Advertise a separate relay instead of relaying through this server:
+      # RC_RELAY_ADDR: relay.example.com:21116
+
+volumes:
+  rc-data:

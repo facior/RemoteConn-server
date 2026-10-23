@@ -1,0 +1,250 @@
+syntax = "proto3";
+
+package remoteconn.rendezvous.v1;
+
+// Rendezvous + relay server protocol. Every message is a length-prefixed
+// frame on a QUIC bidirectional stream opened by the client. The first client
+// frame is always an Open.
+
+message Open {
+  oneof kind {
+    RendezvousOpen rendezvous = 1;
+    RelayBind relay = 2;
+  }
+}
+
+message RendezvousOpen {
+  uint32 protocol_version = 1;
+  // Required when the server is configured with an access key.
+  string access_key = 2;
+}
+
+// Server's reply to RendezvousOpen; the challenge is signed on Register.
+message ServerHello {
+  bytes challenge = 1;
+  uint32 protocol_version = 2;
+  // Non-empty when the server refuses the client (e.g. wrong access key).
+  string error = 3;
+}
+
+message ClientMessage {
+  oneof msg {
+    Register register = 1;
+    Lookup lookup = 2;
+    RequestRelay request_relay = 3;
+    // Accounts: request/response on one stream (see the Account* messages).
+    AccountPrelogin account_prelogin = 4;
+    AccountRegister account_register = 5;
+    AccountLogin account_login = 6;
+    AccountCall account_call = 7;
+  }
+}
+
+message ServerMessage {
+  oneof msg {
+    Registered registered = 1;
+    LookupResult lookup_result = 2;
+    PunchRequest punch = 3;
+    RelayOffer relay_offer = 4;
+    Error error = 5;
+    AccountUpdate account_update = 6;
+    AccountSalt account_salt = 7;
+    AccountSession account_session = 8;
+    AccountReply account_reply = 9;
+  }
+}
+
+// Host announces itself. `signature` is Ed25519 over
+// "rc-register-v1" || challenge || noise_public.
+message Register {
+  // Previously assigned ID, empty on first registration.
+  string device_id = 1;
+  bytes verifying_key = 2;
+  bytes noise_public = 3;
+  bytes signature = 4;
+  // "ip:port" addresses on the host's LAN, for same-network viewers.
+  repeated string local_addrs = 5;
+  string device_name = 6;
+  // Account this host trusts; the server then pushes AccountUpdate (key
+  // rotations, revoked devices) on this stream.
+  string account_name = 7;
+}
+
+message Registered {
+  string device_id = 1;
+  // Host's public address as seen by the server.
+  string observed_addr = 2;
+}
+
+message Lookup {
+  string device_id = 1;
+  repeated string local_addrs = 2;
+}
+
+message LookupResult {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_ONLINE = 1;
+    STATUS_OFFLINE = 2;
+    STATUS_NOT_FOUND = 3;
+    STATUS_RATE_LIMITED = 4;
+  }
+  Status status = 1;
+  string observed_addr = 2;
+  repeated string local_addrs = 3;
+  // Expected Noise key of the host; the viewer rejects any other.
+  bytes noise_public = 4;
+  // Identifies this connection attempt for punching and relaying.
+  bytes session_token = 5;
+  string device_name = 6;
+}
+
+// Pushed to the host: send packets to the viewer to open the NAT mapping.
+message PunchRequest {
+  bytes session_token = 1;
+  string viewer_addr = 2;
+  repeated string viewer_local_addrs = 3;
+}
+
+// Viewer gives up on a direct path.
+message RequestRelay {
+  bytes session_token = 1;
+}
+
+// Sent to both sides: connect to the relay with this token. An empty
+// relay_addr means "this server".
+message RelayOffer {
+  bytes session_token = 1;
+  string relay_addr = 2;
+  // Viewer's public address (the host rate-limits password attempts by it).
+  string viewer_addr = 3;
+}
+
+message RelayBind {
+  enum Role {
+    ROLE_UNSPECIFIED = 0;
+    ROLE_VIEWER = 1;
+    ROLE_HOST = 2;
+  }
+  bytes session_token = 1;
+  Role role = 2;
+  string access_key = 3;
+}
+
+// Both peers are bound; from now on the stream and datagrams are piped.
+message RelayReady {}
+
+message Error {
+  string message = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Accounts. The account key is derived from the password on the device
+// (rc-crypto `account`); the server keeps only the public key and the salt.
+// ---------------------------------------------------------------------------
+
+// Asks for the salt to derive the key. Unknown names get a stable fake salt,
+// so this does not reveal which accounts exist.
+message AccountPrelogin {
+  string name = 1;
+}
+
+message AccountSalt {
+  bytes salt = 1;
+}
+
+message AccountRegister {
+  string name = 1;
+  // Invitation code from the administrator (when sign-up is by invitation).
+  string invite = 2;
+  bytes salt = 3;
+  bytes public_key = 4;
+  string display_name = 5;
+}
+
+// Signature by the account key over the stream's ServerHello challenge.
+message AccountLogin {
+  string name = 1;
+  bytes signature = 2;
+}
+
+message AccountSession {
+  // Bearer token for AccountCall; the server stores only its hash.
+  bytes token = 1;
+  string name = 2;
+  string display_name = 3;
+}
+
+message AccountCall {
+  bytes token = 1;
+  oneof op {
+    AccountListDevices list_devices = 2;
+    AccountBindDevice bind_device = 3;
+    AccountUnbindDevice unbind_device = 4;
+    AccountRevokeDevice revoke_device = 5;
+    AccountChangeKey change_key = 6;
+    AccountLogout logout = 7;
+  }
+}
+
+message AccountListDevices {}
+
+// Puts a device on the account. `signature` is by the device's identity key
+// over rc-crypto `bind_message(name, device_id, noise_public)`; a device ID,
+// if given, must belong to that key in the server's registry.
+message AccountBindDevice {
+  string device_id = 1;
+  bytes noise_public = 2;
+  bytes verifying_key = 3;
+  bytes signature = 4;
+  string device_name = 5;
+}
+
+message AccountUnbindDevice {
+  bytes noise_public = 1;
+}
+
+// Lost or stolen device: hosts of the account stop accepting it.
+message AccountRevokeDevice {
+  bytes noise_public = 1;
+}
+
+// Password change: the old key signs the new one (rc-crypto rotation).
+message AccountChangeKey {
+  bytes new_public_key = 1;
+  bytes new_salt = 2;
+  bytes signature = 3;
+}
+
+message AccountLogout {}
+
+message AccountReply {
+  // Empty on success.
+  string error = 1;
+  repeated AccountDevice devices = 2;
+}
+
+message AccountDevice {
+  string device_id = 1;
+  bytes noise_public = 2;
+  string name = 3;
+  bool online = 4;
+  int64 added_unix = 5;
+}
+
+// Pushed to hosts that trust the account. A host follows a key change only
+// through rotations signed by the key it trusts; everything else here can
+// only take access away.
+message AccountUpdate {
+  bytes public_key = 1;
+  repeated KeyRotation rotations = 2;
+  repeated bytes revoked = 3;
+  // Disabled by the server administrator: no passwordless access.
+  bool disabled = 4;
+}
+
+message KeyRotation {
+  bytes old_public_key = 1;
+  bytes new_public_key = 2;
+  bytes signature = 3;
+}

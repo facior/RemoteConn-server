@@ -1,0 +1,16 @@
+[package]
+name = "rc-rendezvous"
+description = "RemoteConn rendezvous client (host registration, viewer lookup)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rc-proto.workspace = true
+rc-crypto.workspace = true
+rc-transport.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+rand.workspace = true

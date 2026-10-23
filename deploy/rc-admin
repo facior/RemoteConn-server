@@ -1,0 +1,302 @@
+#!/usr/bin/env bash
+# rc-admin - administration of the RemoteConn server (root only).
+# Every change is recorded in /var/log/remoteconn-admin.log.
+
+set -Eeuo pipefail
+
+SERVICE=remoteconn-server
+SERVICE_USER=remoteconn
+CONF_DIR=/etc/remoteconn
+ENV_FILE=$CONF_DIR/server.env
+INSTALL_CONF=$CONF_DIR/install.conf
+BIN=/usr/local/bin/rc-server
+ADMIN_LOG=/var/log/remoteconn-admin.log
+CREDENTIALS=/root/remoteconn-credentials.txt
+
+die() { echo "BŁĄD: $*" >&2; exit 1; }
+
+[[ $EUID -eq 0 ]] || die "rc-admin wymaga uprawnień roota (sudo rc-admin ...)"
+[[ -f $ENV_FILE ]] || die "serwer nie jest zainstalowany ($ENV_FILE nie istnieje)"
+
+env_value() { grep -oP "^$1=\K.*" "$ENV_FILE" || true; }
+DATA_DIR=$(env_value RC_DATA_DIR)
+DATA_DIR=${DATA_DIR:-/var/lib/remoteconn}
+
+audit() {
+    local who=${SUDO_USER:-$(logname 2>/dev/null || echo root)}
+    echo "$(date -Is) $who $*" >>"$ADMIN_LOG"
+}
+
+# Data files belong to the service user: never touch them as root.
+server_cmd() {
+    runuser -u "$SERVICE_USER" -- env RC_DATA_DIR="$DATA_DIR" "$BIN" "$@"
+}
+
+set_env() {
+    local key=$1 value=$2 tmp
+    tmp=$(mktemp "$CONF_DIR/.server.env.XXXXXX")
+    if grep -q "^$key=" "$ENV_FILE"; then
+        awk -v k="$key" -v v="$value" 'BEGIN{FS=OFS="="} $1==k {print k "=" v; next} {print}' \
+            "$ENV_FILE" >"$tmp"
+    else
+        cat "$ENV_FILE" >"$tmp"
+        echo "$key=$value" >>"$tmp"
+    fi
+    chmod 0600 "$tmp"
+    mv "$tmp" "$ENV_FILE"
+}
+
+usage() {
+    cat <<EOF
+rc-admin - administracja serwerem RemoteConn
+
+  status                     stan usługi, port, odcisk, liczba urządzeń, zapora
+  logs [-f]                  dziennik serwera (-f: na bieżąco)
+  devices                    zarejestrowane urządzenia (ID, nazwa)
+  blocklist                  lista blokad
+  block ip <adres>           zablokuj adres IP
+  block net <sieć/prefiks>   zablokuj sieć, np. 198.51.100.0/24
+  block device <ID>          zablokuj urządzenie (rozłącza je od razu)
+  unblock <wartość>          usuń blokadę (adres, sieć albo ID)
+  key show                   pokaż klucz dostępu
+  key rotate                 nowy klucz dostępu (klienci muszą go wpisać!)
+  fingerprint                odcisk certyfikatu (porównaj z aplikacją)
+  config                     bieżąca konfiguracja (klucz ukryty)
+  restart                    restart usługi
+  backup [katalog]           kopia danych i konfiguracji (domyślnie /root)
+  audit                      dziennik działań administratora
+  update                     przebuduj z repozytorium i zrestartuj
+
+Panel WWW (tylko 127.0.0.1, dostęp przez tunel SSH):
+  panel url                  jak otworzyć panel (polecenie tunelu SSH)
+  panel user list            konta panelu
+  panel user add <nazwa>     nowe konto (pyta o hasło, min. 12 znaków)
+  panel user passwd <nazwa>  zmiana hasła
+  panel user totp <nazwa>    włącz 2FA (kod QR do aplikacji uwierzytelniającej)
+  panel user totp-off <nazwa> wyłącz 2FA
+  panel user remove <nazwa>  usuń konto (jego sesje kończą się od razu)
+  panel audit                logowania i zmiany wykonane w panelu
+  panel off | panel on       wyłącz / włącz panel (restart usługi)
+
+Konta użytkowników (łączenie bez hasła między własnymi komputerami):
+  account list               konta i ich urządzenia
+  account invite [opis]      kod zaproszenia (jednorazowy, 7 dni)
+  account disable <nazwa>    zablokuj konto (z panelu działa od razu na hostach)
+  account enable <nazwa>     odblokuj
+  account delete <nazwa>     usuń konto
+  accounts mode invite|open|off  kto może zakładać konta (restart usługi)
+
+Blokady działają bez restartu (serwer sprawdza listę co kilka sekund).
+EOF
+}
+
+panel_url() {
+    local bind port host
+    bind=$(env_value RC_ADMIN_BIND)
+    if [[ $bind == off || $bind == none ]]; then
+        echo "Panel jest wyłączony (włącz: sudo rc-admin panel on)."
+        return
+    fi
+    port=${bind##*:}
+    port=${port:-8080}
+    host=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+    cat <<EOF
+Panel nasłuchuje tylko na 127.0.0.1:$port - z internetu nie jest dostępny.
+
+Na swoim komputerze (Windows: PowerShell, macOS/Linux: terminal):
+
+    ssh -N -L $port:127.0.0.1:$port ${SUDO_USER:-root}@${host:-<adres-serwera>}
+
+i otwórz w przeglądarce:  http://localhost:$port
+(tunel działa, dopóki to okno jest otwarte; zamknij je, gdy skończysz)
+
+Konta: sudo rc-admin panel user list
+EOF
+}
+
+cmd=${1:-help}
+shift || true
+
+case $cmd in
+    status)
+        systemctl --no-pager --lines=0 status "$SERVICE" || true
+        echo
+        echo "Port:          $(env_value RC_BIND)"
+        echo "Odcisk:        $(server_cmd fingerprint | head -n1)"
+        echo "Urządzenia:    $(server_cmd devices 2>/dev/null | wc -l)"
+        echo "Blokady:       $(server_cmd blocklist 2>/dev/null | wc -l)"
+        echo "Konta:         $(server_cmd account list 2>/dev/null | grep -cv '^    ' || true) (zakładanie: $(env_value RC_ACCOUNTS | sed 's/^$/invite/'))"
+        panel=$(env_value RC_ADMIN_BIND)
+        if [[ $panel == off || $panel == none ]]; then
+            echo "Panel WWW:     wyłączony"
+        else
+            echo "Panel WWW:     ${panel:-127.0.0.1:8080}, kont: $(server_cmd panel-user list 2>/dev/null | wc -l) (rc-admin panel url)"
+        fi
+        if [[ -n $(env_value RC_ACCESS_KEY) ]]; then
+            echo "Klucz dostępu: ustawiony"
+        else
+            echo "Klucz dostępu: BRAK - serwer otwarty dla wszystkich (rc-admin key rotate)"
+        fi
+        if command -v ufw >/dev/null; then
+            echo "Zapora:        $(ufw status | head -n1)"
+        elif command -v firewall-cmd >/dev/null; then
+            echo "Zapora:        firewalld $(firewall-cmd --state 2>/dev/null || echo nieaktywny)"
+        fi
+        ;;
+    logs)
+        if [[ ${1:-} == -f ]]; then
+            journalctl -u "$SERVICE" -f
+        else
+            journalctl -u "$SERVICE" -n 200 --no-pager
+        fi
+        ;;
+    devices)
+        server_cmd devices
+        ;;
+    blocklist)
+        server_cmd blocklist
+        ;;
+    block)
+        [[ $# -ge 2 ]] || die "użycie: rc-admin block <ip|net|device> <wartość>"
+        kind=$1
+        shift
+        server_cmd block "$kind" "$*"
+        audit "block $kind $*"
+        ;;
+    unblock)
+        [[ $# -ge 1 ]] || die "użycie: rc-admin unblock <wartość>"
+        server_cmd unblock "$*"
+        audit "unblock $*"
+        ;;
+    key)
+        case ${1:-} in
+            show)
+                env_value RC_ACCESS_KEY
+                audit "key show"
+                ;;
+            rotate)
+                if [[ ${2:-} != --yes ]]; then
+                    read -r -p "Nowy klucz rozłączy klientów do czasu wpisania go w aplikacji. Kontynuować? [t/N] " a
+                    [[ $a =~ ^[tTyY]$ ]] || die "anulowano"
+                fi
+                new_key=$("$BIN" gen-key)
+                set_env RC_ACCESS_KEY "$new_key"
+                systemctl restart "$SERVICE"
+                if [[ -f $CREDENTIALS ]]; then
+                    sed -i "s|^Klucz dostępu:.*|Klucz dostępu:      $new_key|" "$CREDENTIALS"
+                fi
+                audit "key rotate"
+                echo "Nowy klucz dostępu: $new_key"
+                ;;
+            *) die "użycie: rc-admin key show|rotate" ;;
+        esac
+        ;;
+    fingerprint)
+        server_cmd fingerprint
+        ;;
+    config)
+        sed -E 's/^(RC_ACCESS_KEY=).+/\1******** (rc-admin key show)/' "$ENV_FILE"
+        ;;
+    restart)
+        systemctl restart "$SERVICE"
+        audit "restart"
+        systemctl --no-pager --lines=5 status "$SERVICE" || true
+        ;;
+    backup)
+        dest=${1:-/root}
+        file=$dest/remoteconn-backup-$(date +%Y%m%d-%H%M%S).tar.gz
+        umask 077
+        tar -czf "$file" -C / "${DATA_DIR#/}" "${CONF_DIR#/}"
+        audit "backup $file"
+        echo "Kopia (tylko root): $file"
+        echo "Zawiera klucz prywatny serwera i klucz dostępu - przechowuj ją bezpiecznie."
+        ;;
+    audit)
+        tail -n 100 "$ADMIN_LOG"
+        ;;
+    panel)
+        case ${1:-} in
+            url)
+                panel_url
+                ;;
+            user)
+                sub=${2:-}
+                name=${3:-}
+                case $sub in
+                    list)
+                        server_cmd panel-user list
+                        ;;
+                    add|passwd|totp|totp-off|remove)
+                        [[ -n $name ]] || die "użycie: rc-admin panel user $sub <nazwa>"
+                        server_cmd panel-user "$sub" "$name"
+                        audit "panel user $sub $name"
+                        ;;
+                    *) die "użycie: rc-admin panel user list|add|passwd|totp|totp-off|remove <nazwa>" ;;
+                esac
+                ;;
+            audit)
+                if [[ -f $DATA_DIR/panel-audit.log ]]; then
+                    tail -n 100 "$DATA_DIR/panel-audit.log"
+                else
+                    echo "Brak wpisów."
+                fi
+                ;;
+            off)
+                set_env RC_ADMIN_BIND off
+                systemctl restart "$SERVICE"
+                audit "panel off"
+                echo "Panel wyłączony."
+                ;;
+            on)
+                port=${2:-8080}
+                [[ $port =~ ^[0-9]+$ ]] || die "użycie: rc-admin panel on [port]"
+                set_env RC_ADMIN_BIND "127.0.0.1:$port"
+                systemctl restart "$SERVICE"
+                audit "panel on $port"
+                panel_url
+                ;;
+            *) die "użycie: rc-admin panel url|user|audit|on|off (rc-admin help)" ;;
+        esac
+        ;;
+    account)
+        sub=${1:-}
+        case $sub in
+            list)
+                server_cmd account list
+                ;;
+            invite)
+                shift
+                server_cmd account invite "$@"
+                audit "account invite $*"
+                ;;
+            disable|enable|delete)
+                [[ -n ${2:-} ]] || die "użycie: rc-admin account $sub <nazwa>"
+                server_cmd account "$sub" "$2"
+                audit "account $sub $2"
+                ;;
+            *) die "użycie: rc-admin account list|invite|disable|enable|delete" ;;
+        esac
+        ;;
+    accounts)
+        [[ ${1:-} == mode && ${2:-} =~ ^(invite|open|off)$ ]] \
+            || die "użycie: rc-admin accounts mode invite|open|off"
+        set_env RC_ACCOUNTS "$2"
+        systemctl restart "$SERVICE"
+        audit "accounts mode $2"
+        echo "Zakładanie kont: $2"
+        ;;
+    update)
+        repo=$(grep -oP '^REPO_DIR=\K.*' "$INSTALL_CONF" 2>/dev/null || true)
+        [[ -n $repo && -f $repo/deploy/install.sh ]] \
+            || die "nie znaleziono repozytorium (zaktualizuj je i uruchom install.sh --update)"
+        # Through bash: archives made on Windows do not keep the executable bit.
+        bash "$repo/deploy/install.sh" --update
+        ;;
+    help|-h|--help)
+        usage
+        ;;
+    *)
+        usage
+        die "nieznane polecenie: $cmd"
+        ;;
+esac

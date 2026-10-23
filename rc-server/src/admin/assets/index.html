@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>RemoteConn – panel serwera</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<main id="login-view" class="login" hidden>
+  <form id="login-form" class="card login-card" autocomplete="on">
+    <div class="brand"><span class="logo" aria-hidden="true"></span>RemoteConn</div>
+    <h1>Panel serwera</h1>
+    <label>Użytkownik
+      <input name="user" autocomplete="username" required maxlength="32" autofocus>
+    </label>
+    <label>Hasło
+      <input name="password" type="password" autocomplete="current-password" required maxlength="256">
+    </label>
+    <label><span>Kod 2FA <span class="muted">(jeśli włączony)</span></span>
+      <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" pattern="[0-9 ]*">
+    </label>
+    <p id="login-error" class="error" role="alert" hidden></p>
+    <button type="submit" class="primary">Zaloguj</button>
+    <p class="muted small">Konta tworzy administrator na serwerze:<br><code>sudo rc-admin panel user add &lt;nazwa&gt;</code></p>
+  </form>
+</main>
+
+<div id="app-view" hidden>
+  <header class="topbar">
+    <div class="brand"><span class="logo" aria-hidden="true"></span>RemoteConn <span class="muted">serwer</span></div>
+    <nav id="tabs" role="tablist">
+      <button role="tab" data-tab="overview" aria-selected="true">Przegląd</button>
+      <button role="tab" data-tab="devices">Urządzenia</button>
+      <button role="tab" data-tab="accounts">Konta</button>
+      <button role="tab" data-tab="relays">Relay</button>
+      <button role="tab" data-tab="blocklist">Blokady</button>
+      <button role="tab" data-tab="events">Zdarzenia</button>
+      <button role="tab" data-tab="audit">Audyt</button>
+    </nav>
+    <div class="who"><span id="who"></span><button id="logout" class="ghost">Wyloguj</button></div>
+  </header>
+
+  <div id="toast" role="status" hidden></div>
+
+  <section id="tab-overview" class="tab">
+    <div class="stats" id="stats"></div>
+    <div class="card">
+      <h2>Serwer</h2>
+      <dl class="kv" id="server-info"></dl>
+    </div>
+  </section>
+
+  <section id="tab-devices" class="tab" hidden>
+    <div class="toolbar">
+      <input id="device-search" type="search" placeholder="Szukaj po nazwie lub ID" maxlength="64">
+      <label class="check"><input id="device-online" type="checkbox" checked> tylko online</label>
+      <span class="muted" id="device-count"></span>
+    </div>
+    <p class="muted small">„Połącz” otwiera aplikację RemoteConn na tym komputerze z wpisanym ID; hasło podajesz w aplikacji.</p>
+    <div class="card table-card"><table id="devices-table">
+      <thead><tr><th>ID</th><th>Nazwa</th><th>Konto</th><th>Stan</th><th>Adres</th><th>Online od</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </section>
+
+  <section id="tab-accounts" class="tab" hidden>
+    <p class="muted small" id="signup-mode"></p>
+    <form id="invite-form" class="card toolbar">
+      <input name="note" maxlength="64" placeholder="Dla kogo (opcjonalnie), np. Anna z księgowości">
+      <button type="submit" class="primary">Utwórz zaproszenie</button>
+    </form>
+    <div id="invite-code" class="card" hidden></div>
+    <div class="card table-card"><table id="invites-table">
+      <thead><tr><th>Zaproszenie</th><th>Utworzone</th><th>Wygasa</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="muted small">Serwer zna tylko klucze publiczne kont, nigdy hasła. Zablokowanie konta albo odebranie dostępu urządzeniu działa od razu na komputerach konta, które są online. Resetu hasła nie ma: konto trzeba usunąć i założyć ponownie.</p>
+    <div id="accounts-list"></div>
+  </section>
+
+  <section id="tab-relays" class="tab" hidden>
+    <p class="muted small">Relay przekazuje tylko zaszyfrowane dane (Noise end-to-end). Panel widzi adresy i liczbę bajtów, nigdy treść.</p>
+    <div class="card table-card"><table id="relays-table">
+      <thead><tr><th>#</th><th>Strona A</th><th>Strona B</th><th>Od</th><th>Przesłano</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </section>
+
+  <section id="tab-blocklist" class="tab" hidden>
+    <form id="block-form" class="card toolbar">
+      <select name="kind" aria-label="Rodzaj">
+        <option value="device">Urządzenie (ID)</option>
+        <option value="ip">Adres IP</option>
+        <option value="net">Sieć (CIDR)</option>
+      </select>
+      <input name="value" required maxlength="64" placeholder="np. 123 456 789, 203.0.113.5, 198.51.100.0/24">
+      <button type="submit" class="danger">Zablokuj</button>
+    </form>
+    <div class="card table-card"><table id="block-table">
+      <thead><tr><th>Rodzaj</th><th>Wartość</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p id="block-errors" class="error small" hidden></p>
+  </section>
+
+  <section id="tab-events" class="tab" hidden>
+    <div class="card table-card"><table id="events-table">
+      <thead><tr><th>Czas</th><th>Rodzaj</th><th>Opis</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </section>
+
+  <section id="tab-audit" class="tab" hidden>
+    <p class="muted small">Logowania i zmiany wykonane w panelu (plik <code>panel-audit.log</code> w katalogu danych).</p>
+    <div class="card"><pre id="audit-lines" class="log"></pre></div>
+  </section>
+</div>
+</body>
+</html>
