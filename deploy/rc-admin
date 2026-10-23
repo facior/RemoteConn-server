@@ -199,8 +199,10 @@ update_apply() {
         die "nie ma wydania $version"
     fi
     if ! version_newer "$version" "$current"; then
-        set_update_status failed "$version" "$by" "to nie jest nowsza wersja niż zainstalowana ($current)"
-        die "$version nie jest nowsza niż $current"
+        # Nothing was changed: not a failure (closes a panel request too).
+        set_update_status skipped "$version" "$by" "zainstalowana wersja ($current) jest już aktualna"
+        echo "Zainstalowana wersja ($current) jest aktualna; $version nie jest nowsza."
+        return 0
     fi
     audit "update $current -> $version (zlecił: $by)"
     set_update_status running "$version" "$by" "budowanie nowej wersji"

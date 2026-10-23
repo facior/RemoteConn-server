@@ -322,7 +322,8 @@ const UPDATE_STATE = {
   requested: "zlecona, czeka na uruchomienie",
   running: "w toku (budowanie i restart, kilka minut)",
   done: "zakończona",
-  failed: "nieudana, przywrócono poprzednią wersję",
+  failed: "nieudana",
+  skipped: "pominięta",
 };
 
 async function copyText(text) {
@@ -390,7 +391,7 @@ async function renderUpdate() {
   }
   const s = u.status;
   if (s && s.state) {
-    const cls = s.state === "failed" ? "error" : s.state === "done" ? "ok-text" : "";
+    const cls = s.state === "failed" ? "error" : s.state === "done" ? "ok-text" : s.state === "skipped" ? "muted small" : "";
     rows.push(el("p", { class: cls }, `Aktualizacja do ${s.version}: ${UPDATE_STATE[s.state] || s.state}`,
       s.message ? el("span", { class: "muted small" }, ` — ${s.message}`) : null));
     if (s.state === "failed" && s.log) rows.push(el("pre", { class: "log" }, s.log));

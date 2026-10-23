@@ -45,7 +45,7 @@ pub struct Available {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Status {
-    /// "requested" | "running" | "done" | "failed"
+    /// "requested" | "running" | "done" | "failed" | "skipped"
     #[serde(default)]
     pub state: String,
     #[serde(default)]
