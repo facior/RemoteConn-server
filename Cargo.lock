@@ -1391,7 +1391,7 @@ dependencies = [
 
 [[package]]
 name = "rc-crypto"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "argon2",
  "blake3",
@@ -1406,7 +1406,7 @@ dependencies = [
 
 [[package]]
 name = "rc-proto"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "prost",
  "prost-build",
@@ -1416,7 +1416,7 @@ dependencies = [
 
 [[package]]
 name = "rc-rendezvous"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rand 0.8.8",
  "rc-crypto",
@@ -1429,7 +1429,7 @@ dependencies = [
 
 [[package]]
 name = "rc-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "argon2",
  "axum",
@@ -1453,7 +1453,7 @@ dependencies = [
 
 [[package]]
 name = "rc-transport"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "bytes",
