@@ -302,8 +302,14 @@ Główny administrator to rola pierwszego konta panelu. Przekazanie jej innemu k
 `sudo rc-server panel-user owner <nazwa>` (z `RC_DATA_DIR=/var/lib/remoteconn`, jako użytkownik `remoteconn`) albo
 po prostu załóż konta w odpowiedniej kolejności.
 
-> Serwer zainstalowany przed wersją 0.2.0 nie ma jeszcze aktualizacji z panelu. Jednorazowo:
-> `cd ~/RemoteConn-server && sudo git pull && sudo rc-admin update`.
+> Serwer zainstalowany przed wersją 0.2.0 nie ma jeszcze aktualizacji z panelu. Jednorazowo, w katalogu, z którego
+> był instalowany (sprawdzisz go: `sudo grep REPO_DIR /etc/remoteconn/install.conf`):
+> ```sh
+> cd /home/admin/RemoteConn-server     # Twój katalog instalacji (uwaga: jako root "~" to /root)
+> sudo git pull
+> sudo rc-admin update
+> sudo rc-admin panel setup            # jeśli panel nie ma jeszcze konta
+> ```
 
 ## 12. Przeprowadzka na inny serwer
 
