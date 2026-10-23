@@ -99,6 +99,7 @@ function fillTable(selector, rows, emptyText, columns) {
 function showLogin() {
   stopRefresh();
   csrf = "";
+  hideAppConfig();
   $("#app-view").hidden = true;
   $("#login-view").hidden = false;
   $("#login-form [name=user]").focus();
@@ -324,6 +325,50 @@ const UPDATE_STATE = {
   failed: "nieudana, przywrócono poprzednią wersję",
 };
 
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Skopiowano");
+  } catch {
+    toast("Nie udało się skopiować – zaznacz tekst i skopiuj ręcznie", true);
+  }
+}
+
+// Fetched only on click: the code contains the access key and each view is
+// written to the audit log.
+async function showAppConfig() {
+  const body = $("#app-config-body");
+  let data;
+  try {
+    data = await api("/api/config-code");
+  } catch (e) {
+    toast(e.message, true);
+    return;
+  }
+  if (!data.configured) {
+    body.replaceChildren(el("p", { class: "warn" },
+      "Nie ustawiono publicznego adresu serwera. Na serwerze: ",
+      el("code", {}, "sudo rc-admin address <adres-lub-domena>"), "."));
+    return;
+  }
+  const row = (label, value, cls) => el("div", { class: "copy-row" },
+    el("span", { class: "copy-label" }, label),
+    el("code", { class: cls || "" }, value || "—"),
+    value ? el("button", { type: "button", class: "ghost", onclick: () => copyText(value) }, "Kopiuj") : el("span"));
+  body.replaceChildren(
+    row("Kod konfiguracji", data.code, "config-code"),
+    row("Serwer ID", data.server),
+    row("Klucz dostępu", data.access_key),
+    row("Odcisk", data.fingerprint),
+    el("button", { type: "button", class: "ghost", onclick: hideAppConfig }, "Ukryj"),
+  );
+}
+
+function hideAppConfig() {
+  $("#app-config-body").replaceChildren(
+    el("button", { type: "button", id: "app-config-show", onclick: showAppConfig }, "Pokaż kod i dane"));
+}
+
 async function renderUpdate() {
   const card = $("#update-card");
   if (!isOwner) {
@@ -449,6 +494,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     searchTimer = setTimeout(refresh, 250);
   });
   $("#device-online").addEventListener("change", refresh);
+  $("#app-config-show").addEventListener("click", showAppConfig);
 
   $("#invite-form").addEventListener("submit", async (event) => {
     event.preventDefault();

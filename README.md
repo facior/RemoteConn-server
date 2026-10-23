@@ -29,8 +29,9 @@ sudo bash ./deploy/install.sh --harden-ssh --fail2ban --auto-updates
 
 Instalator kompiluje serwer i uruchamia go jako usługę systemd z izolacją. Ustawia też zaporę i generuje klucz dostępu.
 Potem prowadzi przez konfigurację panelu WWW: konto administratora i **2FA** (kod QR do zeskanowania telefonem),
-więc przygotuj aplikację uwierzytelniającą. Na końcu wypisuje **adres, klucz dostępu i odcisk serwera**; te trzy
-wartości wpisujesz w aplikacji (Ustawienia → Sieć). Zapisuje je też w `/root/remoteconn-credentials.txt`.
+więc przygotuj aplikację uwierzytelniającą. Na końcu wypisuje **adres, klucz dostępu, odcisk serwera i kod
+konfiguracji** `RC1-…`. Kod wklejasz w aplikacji (Ustawienia → Sieć → „Wklej kod”), a on ustawia resztę naraz. Kod
+pokaże ponownie `sudo rc-admin app` albo panel WWW (Przegląd → „Dane do aplikacji”).
 
 `--harden-ssh` wyłącza logowanie hasłem do SSH tylko wtedy, gdy któryś administrator (root albo konto z sudo) ma już
 klucz SSH. Najpierw wgraj klucz (`ssh-copy-id użytkownik@serwer`).
@@ -68,6 +69,7 @@ Zmienne środowiskowe (instalator zapisuje je w `/etc/remoteconn/server.env`):
 | `RC_ADMIN_BIND` | `127.0.0.1:8080` | panel WWW; `off` wyłącza |
 | `RC_ADMIN_HOSTS` | brak | dodatkowe nazwy hosta panelu (tylko bez tunelu SSH) |
 | `RC_ACCOUNTS` | `invite` | zakładanie kont: `invite` (kody od administratora), `open`, `off` |
+| `RC_PUBLIC_ADDR` | brak | adres `host:port`, który wpisują klienci; trafia do kodu konfiguracji (`rc-admin address`) |
 
 Nie kasuj `server.key` ani `server.crt` w katalogu danych: aplikacje przypinają certyfikat serwera i odmówią
 połączenia, gdy się zmieni.

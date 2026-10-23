@@ -53,6 +53,23 @@ code, .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
 .update-card p { margin: 0; }
 .update-card button { align-self: flex-start; }
 .nowrap { white-space: nowrap; }
+.app-config p { margin: 0 0 10px; }
+.copy-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.copy-row code { overflow-wrap: anywhere; }
+.copy-row .config-code { font-size: 12px; }
+.copy-label { color: var(--muted); }
+#app-config-body > button:last-child { margin-top: 10px; }
+@media (max-width: 600px) {
+  .copy-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .copy-label { grid-column: 1 / -1; }
+}
 
 .card {
   background: var(--surface);

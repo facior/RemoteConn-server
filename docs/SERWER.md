@@ -64,10 +64,11 @@ Szczegółowy przewodnik krok po kroku (VPS, klucze SSH, przesłanie projektu, k
    ```
    `--harden-ssh` wyłącza logowanie hasłem do SSH. Skrypt odmówi, jeśli nie masz klucza SSH na koncie, z którego
    uruchamiasz sudo, więc nie zablokujesz sobie dostępu. Najpierw zrób `ssh-copy-id uzytkownik@serwer`.
-3. Na końcu skrypt wypisze **adres serwera, klucz dostępu i odcisk serwera**. Zapisze je też w
-   `/root/remoteconn-credentials.txt` (tylko root).
-4. W aplikacji: **Ustawienia → Sieć**: wpisz adres i klucz, kliknij „Testuj”. Odcisk pokazany w aplikacji musi być
-   taki sam jak ten z instalatora. Włącz udostępnianie, a pojawi się ID.
+3. Na końcu skrypt wypisze **adres serwera, klucz dostępu, odcisk serwera i kod konfiguracji** (`RC1-…`). Zapisze je
+   też w `/root/remoteconn-credentials.txt` (tylko root); pokaże je ponownie `sudo rc-admin app`.
+4. W aplikacji: **Ustawienia → Sieć → „Wklej kod”**, wklej kod konfiguracji i zapisz. Adres, klucz i zaufany odcisk
+   serwera ustawią się naraz. Można też wpisać adres i klucz ręcznie i kliknąć „Testuj”; wtedy odcisk pokazany w
+   aplikacji musi być taki sam jak ten z instalatora. Włącz udostępnianie, a pojawi się ID.
 
 ### 2.3 Opcje instalatora
 
@@ -136,6 +137,8 @@ Wszystkie polecenia wymagają `sudo`. Każda zmiana trafia do `/var/log/remoteco
 | `rc-admin blocklist` | lista blokad |
 | `rc-admin key show` | pokazuje klucz dostępu |
 | `rc-admin key rotate` | nowy klucz (np. po wycieku); klienci muszą go wpisać w ustawieniach |
+| `rc-admin app` | dane do aplikacji: kod konfiguracji `RC1-…` do wklejenia (Ustawienia → Sieć → „Wklej kod”) oraz adres, klucz i odcisk |
+| `rc-admin address [host[:port]]` | pokazuje albo ustawia publiczny adres (np. domenę) używany w kodzie konfiguracji |
 | `rc-admin fingerprint` | odcisk certyfikatu do porównania z aplikacją |
 | `rc-admin config` | konfiguracja (klucz ukryty) |
 | `rc-admin restart` | restart usługi |
@@ -158,7 +161,9 @@ Blokady działają **bez restartu**: serwer sprawdza listę co kilka sekund. Lis
 
 Wbudowany w `rc-server` (bez dodatkowych usług). Zakładki:
 - **Przegląd:** liczba urządzeń online i zarejestrowanych, sesje relay, przesłane dane, czas działania, odcisk
-  certyfikatu, czy klucz dostępu jest ustawiony;
+  certyfikatu, czy klucz dostępu jest ustawiony. Karta **„Dane do aplikacji”** pokazuje po kliknięciu kod
+  konfiguracji `RC1-…` oraz adres, klucz i odcisk, każde z przyciskiem „Kopiuj”. Kod zawiera klucz dostępu, więc każde
+  wyświetlenie trafia do dziennika działań;
 - **Urządzenia:** wyszukiwanie po nazwie lub ID, stan, adres, od kiedy online. Przyciski:
   - **Połącz** otwiera aplikację RemoteConn na komputerze administratora z wpisanym ID (link
     `remoteconn://connect?id=…`); hasło wpisuje się w aplikacji, a samo połączenie jest jak zwykle szyfrowane

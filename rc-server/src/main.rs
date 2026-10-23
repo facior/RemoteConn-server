@@ -20,6 +20,8 @@ Usage:
   rc-server block <ip|net|device> <value> block an address, network or device
   rc-server unblock <value>               remove a blocklist entry
   rc-server gen-key                       print a new random access key
+  rc-server config-code                   code to paste into the app (needs
+                                          RC_PUBLIC_ADDR and RC_ACCESS_KEY)
 
 Admin panel accounts:
   rc-server panel-user list
@@ -43,6 +45,8 @@ Configuration (environment):
   RC_BIND                 UDP address (default 0.0.0.0:21116)
   RC_DATA_DIR             registry, certificate, blocklist (default ./data)
   RC_ACCESS_KEY           key clients must present; unset = open server
+  RC_PUBLIC_ADDR          host:port clients type in (for the configuration
+                          code in the panel)
   RC_RELAY_ADDR           advertise a separate relay host:port
   RC_MAX_RELAYS           concurrent relayed sessions (default 200)
   RC_MAX_CONN_PER_CLIENT  connections per IP / IPv6 /64 (default 32)
@@ -144,6 +148,17 @@ async fn main() -> Result<()> {
             println!("{key}");
             Ok(())
         }
+        ["config-code"] => {
+            let identity = ServerIdentity::load_or_create(&data_dir())?;
+            let server = env("RC_PUBLIC_ADDR").ok_or("RC_PUBLIC_ADDR is not set")?;
+            let code = rc_rendezvous::ConfigCode {
+                server: server.trim().to_string(),
+                access_key: env("RC_ACCESS_KEY").unwrap_or_default().trim().to_string(),
+                fingerprint: identity.fingerprint(),
+            };
+            println!("{code}");
+            Ok(())
+        }
         ["version" | "--version"] => {
             println!("{}", env!("CARGO_PKG_VERSION"));
             Ok(())
@@ -174,6 +189,7 @@ async fn run() -> Result<()> {
     let mut cfg = ServerConfig::new(bind, data_dir());
     cfg.relay_addr = env("RC_RELAY_ADDR").unwrap_or_default();
     cfg.access_key = env("RC_ACCESS_KEY").unwrap_or_default();
+    cfg.public_addr = env("RC_PUBLIC_ADDR").unwrap_or_default();
     if let Some(v) = env("RC_MAX_RELAYS") {
         cfg.max_relays = v.parse()?;
     }

@@ -131,9 +131,12 @@ Gotowe. Dane dla klientów (zapisane też w /root/remoteconn-credentials.txt, ty
 Adres serwera ID:   203.0.113.10:21116
 Klucz dostępu:      Xk3...(32 znaki)
 Odcisk serwera:     5290-d8b4-3bd8-ce99
+Kod konfiguracji:   RC1-MjAzLjAuMTEzLjEwOjIxMTE2Clhr...
 ```
 
-**Zapisz te trzy wartości.** W każdej chwili odczytasz je ponownie: `sudo cat /root/remoteconn-credentials.txt`.
+**Zapisz te wartości.** W każdej chwili odczytasz je ponownie: `sudo rc-admin app` (albo
+`sudo cat /root/remoteconn-credentials.txt`). Kod konfiguracji zawiera trzy pozostałe wartości i wklejasz go w aplikacji
+(rozdział 8).
 
 Na końcu instalator przeprowadzi Cię przez konfigurację panelu WWW (rozdział 9, „Panel WWW”):
 1. nazwa administratora (domyślnie `admin`) i hasło (co najmniej 12 znaków; przy za krótkim zapyta ponownie);
@@ -161,7 +164,22 @@ sudo rc-admin logs            # ostatnie wpisy dziennika
 
 ## 8. Konfiguracja aplikacji na komputerach
 
-Na każdym komputerze z RemoteConn:
+### Najprościej: kod konfiguracji
+
+1. **[serwer]** `sudo rc-admin app` wypisze kod `RC1-…`. Ten sam kod jest w panelu WWW: Przegląd → „Dane do
+   aplikacji” → „Pokaż kod i dane” → „Kopiuj”.
+2. **[aplikacja]** **Ustawienia → Sieć → „Wklej kod”**, wklej i kliknij **Wczytaj**. Adres serwera i klucz dostępu
+   wpiszą się same, a odcisk serwera zostanie zapamiętany jako zaufany, więc nie musisz go porównywać.
+3. **Zapisz**, potem możesz kliknąć **Testuj**. Wróć i kliknij **Zezwól na połączenia**. Przy „ID” pojawi się numer
+   i status „online”.
+
+Kod zawiera klucz dostępu: przekazuj go tylko osobom, które mają korzystać z Twojego serwera. Po `rc-admin key rotate`
+kod się zmienia.
+
+Adres w kodzie to publiczny adres wykryty przy instalacji. Jeśli masz domenę albo serwer stoi za routerem i wykryty
+adres jest zły, ustaw właściwy: `sudo rc-admin address rc.twojadomena.pl` (port zostanie dodany sam).
+
+### Ręcznie
 
 1. **Ustawienia → Sieć**
 2. **Serwer ID:** adres z kroku 6 (albo domena z kroku 2), port można pominąć, jeśli to 21116.
@@ -358,7 +376,8 @@ sudo bash ./deploy/install.sh --uninstall --purge    # usuwa też dane, klucze i
 | Cel | Polecenie |
 |---|---|
 | Instalacja | `sudo bash ./deploy/install.sh --harden-ssh --fail2ban --auto-updates` |
-| Dane dla klientów | `sudo cat /root/remoteconn-credentials.txt` |
+| Dane dla klientów (kod do wklejenia w aplikacji) | `sudo rc-admin app` |
+| Publiczny adres / domena w kodzie | `sudo rc-admin address rc.twojadomena.pl` |
 | Stan | `sudo rc-admin status` |
 | Dziennik | `sudo rc-admin logs -f` |
 | Urządzenia | `sudo rc-admin devices` |

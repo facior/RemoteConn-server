@@ -60,8 +60,10 @@ rc-admin - administracja serwerem RemoteConn
   unblock <wartość>          usuń blokadę (adres, sieć albo ID)
   key show                   pokaż klucz dostępu
   key rotate                 nowy klucz dostępu (klienci muszą go wpisać!)
+  app                        dane do aplikacji: kod konfiguracji do wklejenia + adres, klucz, odcisk
+  address [host[:port]]      pokaż albo ustaw publiczny adres serwera (do kodu konfiguracji)
   fingerprint                odcisk certyfikatu (porównaj z aplikacją)
-  config                     bieżąca konfiguracja (klucz ukryty)
+  config                    bieżąca konfiguracja (klucz ukryty)
   restart                    restart usługi
   backup [katalog]           kopia danych i konfiguracji (domyślnie /root)
   audit                      dziennik działań administratora
@@ -382,13 +384,53 @@ case $cmd in
                 set_env RC_ACCESS_KEY "$new_key"
                 systemctl restart "$SERVICE"
                 if [[ -f $CREDENTIALS ]]; then
-                    sed -i "s|^Klucz dostępu:.*|Klucz dostępu:      $new_key|" "$CREDENTIALS"
+                    sed -i -e "s|^Klucz dostępu:.*|Klucz dostępu:      $new_key|" \
+                        -e "s|^Kod konfiguracji:.*|Kod konfiguracji:   (nowy: sudo rc-admin app)|" "$CREDENTIALS"
                 fi
                 audit "key rotate"
                 echo "Nowy klucz dostępu: $new_key"
+                echo "Nowy kod konfiguracji dla aplikacji: sudo rc-admin app"
                 ;;
             *) die "użycie: rc-admin key show|rotate" ;;
         esac
+        ;;
+    app | client)
+        addr=$(env_value RC_PUBLIC_ADDR)
+        [[ -n $addr ]] || die "nie ustawiono publicznego adresu serwera: rc-admin address <adres-lub-domena>"
+        key=$(env_value RC_ACCESS_KEY)
+        # Through the environment, not arguments: the key stays out of ps.
+        code=$(RC_PUBLIC_ADDR=$addr RC_ACCESS_KEY=$key server_cmd config-code)
+        audit "app (kod konfiguracji)"
+        cat <<EOF
+Kod konfiguracji (aplikacja: Ustawienia -> Sieć -> "Wklej kod"):
+
+$code
+
+Albo ręcznie:
+  Serwer ID:      $addr
+  Klucz dostępu:  ${key:-brak (serwer otwarty)}
+  Odcisk:         $(server_cmd fingerprint | head -n1)
+
+Kod zawiera klucz dostępu: przekazuj go tylko swoim użytkownikom.
+EOF
+        ;;
+    address)
+        if [[ $# -eq 0 ]]; then
+            addr=$(env_value RC_PUBLIC_ADDR)
+            echo "${addr:-nie ustawiono (rc-admin address <adres-lub-domena>)}"
+            exit 0
+        fi
+        addr=$1
+        [[ $addr =~ ^[A-Za-z0-9.:-]+$|^\[[0-9A-Fa-f:]+\](:[0-9]+)?$ ]] || die "nieprawidłowy adres: $addr"
+        # No port given (a bare name, IPv4 or [IPv6]): use the server's port.
+        if [[ $addr != *:* || $addr == *\] ]]; then
+            port=$(env_value RC_BIND)
+            addr="$addr:${port##*:}"
+        fi
+        set_env RC_PUBLIC_ADDR "$addr"
+        systemctl restart "$SERVICE"
+        audit "address $addr"
+        echo "Publiczny adres serwera: $addr (kod konfiguracji: rc-admin app)"
         ;;
     fingerprint)
         server_cmd fingerprint

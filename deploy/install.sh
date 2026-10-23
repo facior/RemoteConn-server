@@ -264,6 +264,13 @@ ensure_panel_config() {
         printf '# Admin web panel: loopback only, use an SSH tunnel (see rc-admin panel url).\nRC_ADMIN_BIND=127.0.0.1:8080\n' >>"$ENV_FILE"
         ok "panel WWW włączony na 127.0.0.1:8080 (konto: sudo rc-admin panel user add <nazwa>)"
     fi
+    if ! grep -q '^RC_PUBLIC_ADDR=' "$ENV_FILE"; then
+        local ip
+        ip=$(public_ip)
+        printf '# Address clients type in; goes into the configuration code (rc-admin app).\nRC_PUBLIC_ADDR=%s\n' \
+            "${ip:+$ip:$PORT}" >>"$ENV_FILE"
+        ok "publiczny adres serwera: ${ip:-nieznany}${ip:+:$PORT} (zmiana: rc-admin address <adres-lub-domena>)"
+    fi
 }
 
 # First install: guided panel setup (administrator account + 2FA) through
@@ -290,12 +297,15 @@ write_env() {
         ACCESS_KEY=$(grep -oP '^RC_ACCESS_KEY=\K.*' "$ENV_FILE" || true)
     fi
     [[ -n $ACCESS_KEY ]] || ACCESS_KEY=$("$BIN" gen-key)
-    local admin_bind accounts
+    local admin_bind accounts public_host
     admin_bind=$(panel_bind)
     accounts=invite
     if [[ -f $ENV_FILE ]] && grep -q '^RC_ACCOUNTS=' "$ENV_FILE"; then
         accounts=$(grep -oP '^RC_ACCOUNTS=\K.*' "$ENV_FILE")
     fi
+    # Reinstall keeps a host set with rc-admin address (e.g. a domain).
+    public_host=$(grep -oP '^RC_PUBLIC_ADDR=\K.*(?=:[0-9]+$)' "$ENV_FILE" 2>/dev/null || true)
+    [[ -n $public_host ]] || public_host=$(public_ip)
     umask 077
     cat >"$ENV_FILE" <<EOF
 # RemoteConn server configuration (read by systemd as root; mode 0600).
@@ -310,6 +320,8 @@ RC_MAX_CONN_PER_CLIENT=$MAX_CONN
 RC_ADMIN_BIND=$admin_bind
 # Who may create user accounts: invite (codes from the panel), open, off.
 RC_ACCOUNTS=$accounts
+# Address clients type in; goes into the configuration code (rc-admin app).
+RC_PUBLIC_ADDR=${public_host:+$public_host:$PORT}
 RUST_LOG=info
 EOF
     chown root:root "$ENV_FILE"
@@ -599,18 +611,23 @@ start_service() {
 }
 
 write_credentials() {
-    local fp ip
+    local fp ip addr code
     fp=$(runuser -u "$SERVICE_USER" -- env RC_DATA_DIR="$DATA_DIR" "$BIN" fingerprint | head -n1)
     ip=$(public_ip)
+    addr=$(grep -oP '^RC_PUBLIC_ADDR=\K.+' "$ENV_FILE" || echo "${ip:-<adres-serwera>}:$PORT")
+    code=$(RC_PUBLIC_ADDR=$addr RC_ACCESS_KEY=$ACCESS_KEY runuser -u "$SERVICE_USER" -- \
+        env RC_DATA_DIR="$DATA_DIR" "$BIN" config-code 2>/dev/null || true)
     umask 077
     cat >"$CREDENTIALS" <<EOF
 RemoteConn - dane serwera ($(date -Is))
 
-Adres serwera ID:   ${ip:-<adres-serwera>}:$PORT
+Adres serwera ID:   $addr
 Klucz dostępu:      $ACCESS_KEY
 Odcisk serwera:     $fp
+Kod konfiguracji:   $code
 
-W aplikacji: Ustawienia -> Sieć -> Serwer ID + Klucz dostępu, potem "Testuj".
+W aplikacji: Ustawienia -> Sieć -> "Wklej kod" (kod konfiguracji) albo ręcznie
+Serwer ID + Klucz dostępu, potem "Testuj". Kod pokaże też: sudo rc-admin app
 Odcisk wyświetlony w aplikacji przy teście musi być taki sam jak powyżej.
 
 Administracja:      sudo rc-admin help
@@ -630,7 +647,7 @@ EOF
     echo
     echo "${C_B}Gotowe.${C_0} Dane dla klientów (zapisane też w $CREDENTIALS, tylko root):"
     echo
-    sed -n '3,5p' "$CREDENTIALS"
+    sed -n '3,6p' "$CREDENTIALS"
     echo
     echo "Administracja:  sudo rc-admin status | devices | block | key rotate | logs | help"
     [[ $bind == off ]] || echo "Panel WWW:      sudo rc-admin panel url   (instrukcja tunelu SSH)"

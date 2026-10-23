@@ -330,6 +330,47 @@ async fn only_the_owner_with_2fa_requests_updates() {
 }
 
 #[tokio::test]
+async fn config_code_for_the_app_is_audited() {
+    let dir = temp_dir("config-code");
+    add_user(&dir, "admin", None);
+
+    // Without a public address there is nothing to hand out.
+    let (server, base) = start(&dir).await;
+    let admin = login(&base, "admin", PASSWORD, "").await.unwrap();
+    let (status, data) = admin.get("/api/config-code").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(data["configured"], false);
+    server.stop();
+    drop(server);
+
+    let mut cfg = ServerConfig::new("127.0.0.1:0".parse().unwrap(), dir.clone());
+    cfg.admin_bind = Some("127.0.0.1:0".parse().unwrap());
+    cfg.public_addr = "rc.example.com:21116".into();
+    cfg.access_key = "sekretny-klucz".into();
+    let server = rc_server::start(cfg).await.unwrap();
+    let base = format!("http://{}", server.admin_addr.unwrap());
+    let admin = login(&base, "admin", PASSWORD, "").await.unwrap();
+    let (_, data) = admin.get("/api/config-code").await;
+    assert_eq!(data["configured"], true);
+    let code = rc_rendezvous::ConfigCode::decode(data["code"].as_str().unwrap()).unwrap();
+    assert_eq!(code.server, "rc.example.com:21116");
+    assert_eq!(code.access_key, "sekretny-klucz");
+    assert_eq!(code.fingerprint, server.fingerprint);
+    assert_eq!(data["access_key"], "sekretny-klucz");
+
+    let (_, audit) = admin.get("/api/audit").await;
+    assert!(audit["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|l| l.as_str().unwrap().contains("kod konfiguracji")));
+
+    server.stop();
+    drop(server);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
 async fn lockout_and_totp() {
     let dir = temp_dir("lock");
     let secret = totp::generate_secret();

@@ -53,6 +53,9 @@ pub struct ServerConfig {
     pub admin_hosts: Vec<String>,
     /// Who may create accounts (`RC_ACCOUNTS`).
     pub signup: accounts::Signup,
+    /// Address clients type in (`host:port`, `RC_PUBLIC_ADDR`), shown in the
+    /// panel's configuration code; empty = unknown.
+    pub public_addr: String,
 }
 
 impl ServerConfig {
@@ -67,6 +70,7 @@ impl ServerConfig {
             admin_bind: None,
             admin_hosts: Vec::new(),
             signup: accounts::Signup::default(),
+            public_addr: String::new(),
         }
     }
 }
@@ -84,6 +88,9 @@ pub(crate) struct Server {
     pub blocklist: RwLock<blocklist::Blocklist>,
     pub relay_addr: String,
     access_key_hash: Option<blake3::Hash>,
+    /// Kept for the configuration code shown to panel administrators.
+    access_key: String,
+    pub public_addr: String,
     pub events: events::EventLog,
     pub data_dir: PathBuf,
     pub started_unix: i64,
@@ -106,6 +113,16 @@ impl Server {
 
     pub fn access_key_set(&self) -> bool {
         self.access_key_hash.is_some()
+    }
+
+    /// Server address, access key and certificate for the app, or `None`
+    /// while the public address is not configured.
+    pub fn config_code(&self) -> Option<rc_rendezvous::ConfigCode> {
+        (!self.public_addr.is_empty()).then(|| rc_rendezvous::ConfigCode {
+            server: self.public_addr.clone(),
+            access_key: self.access_key.clone(),
+            fingerprint: self.fingerprint,
+        })
     }
 
     /// Replaces the blocklist file and applies it at once (admin actions).
@@ -166,6 +183,8 @@ pub async fn start(cfg: ServerConfig) -> Result<ServerHandle> {
         blocklist: RwLock::new(blocklist::Blocklist::default()),
         relay_addr: cfg.relay_addr,
         access_key_hash: (!access_key.is_empty()).then(|| blake3::hash(access_key.as_bytes())),
+        access_key: access_key.to_string(),
+        public_addr: cfg.public_addr.trim().to_string(),
         events: Default::default(),
         data_dir: data_dir.clone(),
         started_unix: events::unix_now(),

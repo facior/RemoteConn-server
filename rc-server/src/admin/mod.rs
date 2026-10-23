@@ -121,6 +121,7 @@ fn router(state: AppState) -> Router {
         .route("/api/invites", get(invites).post(create_invite))
         .route("/api/invites/{key}/delete", post(delete_invite))
         .route("/api/audit", get(audit))
+        .route("/api/config-code", get(config_code))
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "Nie znaleziono") })
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
@@ -484,6 +485,27 @@ async fn audit(
     let limit = q.limit.unwrap_or(200).min(1000);
     let lines = state.auth.audit_tail(limit).map_err(ApiError::internal)?;
     Ok(Json(json!({ "lines": lines })))
+}
+
+/// What users paste into the app: address, access key and certificate in one
+/// code. It contains the access key, so every view is audited.
+async fn config_code(State(state): State<AppState>, authed: Authed) -> ApiResult {
+    let s = &state.server;
+    let Some(code) = s.config_code() else {
+        return Ok(Json(json!({ "configured": false })));
+    };
+    state.auth.audit(
+        &authed.user,
+        authed.ip,
+        "kod konfiguracji aplikacji: wyświetlenie",
+    );
+    Ok(Json(json!({
+        "configured": true,
+        "code": code.encode(),
+        "server": code.server,
+        "access_key": code.access_key,
+        "fingerprint": crate::short_fingerprint(&code.fingerprint),
+    })))
 }
 
 fn signup_name(signup: crate::accounts::Signup) -> &'static str {

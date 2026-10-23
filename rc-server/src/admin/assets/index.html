@@ -48,6 +48,12 @@
   <section id="tab-overview" class="tab">
     <div class="card update-card" id="update-card" hidden></div>
     <div class="stats" id="stats"></div>
+    <div class="card app-config">
+      <h2>Dane do aplikacji</h2>
+      <p class="muted">Kod konfiguracji wklejasz w aplikacji: Ustawienia → Sieć → „Wklej kod”. Wpisuje adres serwera,
+        klucz dostępu i zaufany odcisk certyfikatu naraz. Zawiera klucz dostępu: przekazuj go tylko swoim użytkownikom.</p>
+      <div id="app-config-body"><button type="button" id="app-config-show">Pokaż kod i dane</button></div>
+    </div>
     <div class="card">
       <h2>Serwer</h2>
       <dl class="kv" id="server-info"></dl>

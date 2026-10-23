@@ -10,6 +10,7 @@ rust-version.workspace = true
 rc-proto.workspace = true
 rc-crypto.workspace = true
 rc-transport.workspace = true
+rc-rendezvous.workspace = true
 tokio = { workspace = true, features = ["signal"] }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -26,4 +27,3 @@ qr2term = "0.3"
 
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
-rc-rendezvous.workspace = true

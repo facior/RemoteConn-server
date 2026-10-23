@@ -25,10 +25,12 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 mod account;
+mod config_code;
 
 pub use account::{
     account_call, account_login, account_register, change_password, AccountLogin, AccountOp,
 };
+pub use config_code::{ConfigCode, ConfigCodeError};
 pub use rc_proto::rendezvous::relay_bind::Role as RelayRole;
 pub use rc_proto::rendezvous::{AccountDevice, AccountUpdate};
 
