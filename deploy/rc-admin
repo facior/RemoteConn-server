@@ -423,7 +423,7 @@ EOF
         addr=$1
         [[ $addr =~ ^[A-Za-z0-9.:-]+$|^\[[0-9A-Fa-f:]+\](:[0-9]+)?$ ]] || die "nieprawidłowy adres: $addr"
         # No port given (a bare name, IPv4 or [IPv6]): use the server's port.
-        if [[ $addr != *:* || $addr == *\] ]]; then
+        if [[ $addr != *:* || $addr == *"]" ]]; then
             port=$(env_value RC_BIND)
             addr="$addr:${port##*:}"
         fi
