@@ -135,8 +135,13 @@ Odcisk serwera:     5290-d8b4-3bd8-ce99
 
 **Zapisz te trzy wartości.** W każdej chwili odczytasz je ponownie: `sudo cat /root/remoteconn-credentials.txt`.
 
-Instalator zapyta też, czy od razu utworzyć konto do panelu WWW (rozdział 9, „Panel WWW”). Możesz to zrobić teraz
-albo później.
+Na końcu instalator przeprowadzi Cię przez konfigurację panelu WWW (rozdział 9, „Panel WWW”):
+1. nazwa administratora (domyślnie `admin`) i hasło (co najmniej 12 znaków; przy za krótkim zapyta ponownie);
+2. **2FA**: wyświetli kod QR, który skanujesz aplikacją uwierzytelniającą na telefonie (Google lub Microsoft
+   Authenticator, Aegis, 1Password), a potem wpisujesz 6-cyfrowy kod, żeby potwierdzić.
+
+Przygotuj telefon przed instalacją. Jeśli coś pominiesz, później uruchomisz ten sam przewodnik:
+`sudo rc-admin panel setup`.
 
 ### Po `--harden-ssh`: sprawdź logowanie
 
@@ -207,11 +212,10 @@ otwiera aplikację RemoteConn na Twoim komputerze z wpisanym ID; hasło podajesz
 
 Panel nasłuchuje **tylko na 127.0.0.1:8080**, więc z internetu go nie widać. Łączysz się przez tunel SSH.
 
-**[serwer]** Jednorazowo załóż konto (hasło min. 12 znaków) i włącz 2FA:
+**[serwer]** Konto z 2FA zakłada instalator. Jeśli go pominąłeś albo chcesz dodać kolejną osobę:
 
 ```sh
-sudo rc-admin panel user add admin
-sudo rc-admin panel user totp admin     # zeskanuj kod QR aplikacją (Google Authenticator, Aegis, 1Password…)
+sudo rc-admin panel setup               # przewodnik: konto (hasło min. 12 znaków) + 2FA z kodem QR
 ```
 
 **[Windows]** Za każdym razem, gdy chcesz użyć panelu, otwórz PowerShell:

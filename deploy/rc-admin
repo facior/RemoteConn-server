@@ -68,6 +68,7 @@ rc-admin - administracja serwerem RemoteConn
   update                     przebuduj z repozytorium i zrestartuj
 
 Panel WWW (tylko 127.0.0.1, dostęp przez tunel SSH):
+  panel setup                przewodnik: konto administratora panelu + 2FA
   panel url                  jak otworzyć panel (polecenie tunelu SSH)
   panel user list            konta panelu
   panel user add <nazwa>     nowe konto (pyta o hasło, min. 12 znaków)
@@ -88,6 +89,52 @@ Konta użytkowników (łączenie bez hasła między własnymi komputerami):
 
 Blokady działają bez restartu (serwer sprawdza listę co kilka sekund).
 EOF
+}
+
+# Guided setup: administrator account, then two-factor authentication.
+panel_setup() {
+    local name answer existing line
+    if [[ $(env_value RC_ADMIN_BIND) =~ ^(off|none)$ ]]; then
+        die "panel jest wyłączony (włącz: sudo rc-admin panel on)"
+    fi
+    [[ -t 0 ]] || die "konfiguracja panelu pyta o hasło: uruchom ją w terminalu"
+    echo "Konfiguracja panelu WWW: konto administratora i weryfikacja dwuetapowa (2FA)."
+    echo
+    existing=$(server_cmd panel-user list 2>/dev/null || true)
+    if [[ -n $existing ]]; then
+        echo "Istniejące konta:"
+        while IFS= read -r line; do echo "  $line"; done <<<"$existing"
+        echo
+    fi
+    while true; do
+        read -r -p "Nazwa użytkownika panelu [admin]: " name
+        name=${name:-admin}
+        [[ $name =~ ^[A-Za-z0-9._-]{1,32}$ ]] && break
+        echo "  Dozwolone są litery, cyfry oraz . _ - (do 32 znaków)."
+    done
+    if grep -q "^$name  " <<<"$existing"; then
+        echo "Konto $name już istnieje; pomijam zakładanie."
+    else
+        server_cmd panel-user add "$name" || die "nie utworzono konta $name"
+        audit "panel user add $name"
+    fi
+    echo
+    if grep -q "^$name  2FA on" <<<"$(server_cmd panel-user list 2>/dev/null)"; then
+        echo "2FA jest już włączone dla $name."
+    else
+        echo "Teraz 2FA: po haśle panel będzie pytał o kod z aplikacji na telefonie."
+        echo "Przygotuj aplikację uwierzytelniającą (Google/Microsoft Authenticator, Aegis, 1Password…)."
+        read -r -p "Włączyć 2FA teraz (zalecane)? [T/n] " answer
+        if [[ $answer =~ ^[nN]$ ]]; then
+            echo "  Pominięto. Włączysz później: sudo rc-admin panel user totp $name"
+        elif server_cmd panel-user totp "$name"; then
+            audit "panel user totp $name"
+        else
+            echo "  2FA nie zostało włączone. Spróbuj ponownie: sudo rc-admin panel user totp $name"
+        fi
+    fi
+    echo
+    panel_url
 }
 
 panel_url() {
@@ -216,6 +263,9 @@ case $cmd in
         ;;
     panel)
         case ${1:-} in
+            setup)
+                panel_setup
+                ;;
             url)
                 panel_url
                 ;;

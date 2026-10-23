@@ -22,14 +22,18 @@ Serwer ID dla aplikacji RemoteConn (zdalny pulpit w stylu AnyDesk, repozytorium 
 Debian, Ubuntu, Fedora albo RHEL/Rocky/Alma z systemd. Na serwerze:
 
 ```sh
-git clone <adres-tego-repozytorium> RemoteConn-server
+git clone https://github.com/facior/RemoteConn-server.git
 cd RemoteConn-server
 sudo bash ./deploy/install.sh --harden-ssh --fail2ban --auto-updates
 ```
 
 Instalator kompiluje serwer i uruchamia go jako usługę systemd z izolacją. Ustawia też zaporę i generuje klucz dostępu.
-Na końcu wypisuje **adres, klucz dostępu i odcisk serwera**; te trzy wartości wpisujesz w aplikacji
-(Ustawienia → Sieć). Zapisuje je też w `/root/remoteconn-credentials.txt`.
+Potem prowadzi przez konfigurację panelu WWW: konto administratora i **2FA** (kod QR do zeskanowania telefonem),
+więc przygotuj aplikację uwierzytelniającą. Na końcu wypisuje **adres, klucz dostępu i odcisk serwera**; te trzy
+wartości wpisujesz w aplikacji (Ustawienia → Sieć). Zapisuje je też w `/root/remoteconn-credentials.txt`.
+
+`--harden-ssh` wyłącza logowanie hasłem do SSH tylko wtedy, gdy któryś administrator (root albo konto z sudo) ma już
+klucz SSH. Najpierw wgraj klucz (`ssh-copy-id użytkownik@serwer`).
 
 Pełny przewodnik krok po kroku (VPS, klucze SSH, DNS, kopie zapasowe, przeprowadzka, problemy):
 **[docs/INSTALACJA-SERWERA.md](docs/INSTALACJA-SERWERA.md)**.
@@ -78,7 +82,7 @@ sudo rc-admin logs -f                   # dziennik na bieżąco
 sudo rc-admin block device 123456789    # blokada urządzenia (także ip / net), działa od razu
 sudo rc-admin key rotate                # nowy klucz dostępu
 sudo rc-admin account invite "Anna"     # kod zaproszenia na konto (jednorazowy, 7 dni)
-sudo rc-admin panel user add admin      # konto do panelu WWW (+ "panel user totp admin" dla 2FA)
+sudo rc-admin panel setup               # konto do panelu WWW z 2FA (przewodnik, jak przy instalacji)
 sudo rc-admin backup ~                  # kopia danych i konfiguracji
 sudo rc-admin update                    # po git pull: przebudowa i restart
 sudo rc-admin help                      # wszystkie polecenia

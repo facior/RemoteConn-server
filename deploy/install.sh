@@ -263,17 +263,21 @@ ensure_panel_config() {
     fi
 }
 
-offer_panel_user() {
+# First install: guided panel setup (administrator account + 2FA) through
+# rc-admin, so it is the same flow as `rc-admin panel setup` later.
+setup_panel() {
     [[ $(panel_bind) == off ]] && return
     local users
     users=$(runuser -u "$SERVICE_USER" -- env RC_DATA_DIR="$DATA_DIR" "$BIN" panel-user list 2>/dev/null || true)
     [[ -z $users ]] || return 0
-    if [[ $ASSUME_YES == 0 && -t 0 ]] && confirm "Utworzyć teraz konto do panelu WWW (użytkownik admin)?"; then
-        if runuser -u "$SERVICE_USER" -- env RC_DATA_DIR="$DATA_DIR" "$BIN" panel-user add admin; then
-            echo "$(date -Is) $(logname 2>/dev/null || echo root) panel user add admin" >>"$ADMIN_LOG"
-        else
-            warn "nie utworzono konta; zrób to później: sudo rc-admin panel user add admin"
-        fi
+    if [[ $ASSUME_YES == 1 || ! -t 0 ]]; then
+        warn "panel WWW nie ma jeszcze konta: skonfiguruj je poleceniem sudo rc-admin panel setup"
+        return
+    fi
+    echo
+    info "Panel WWW: konto administratora i 2FA"
+    if ! "$ADMIN_BIN" panel setup; then
+        warn "konfiguracja panelu nie została dokończona; uruchom ponownie: sudo rc-admin panel setup"
     fi
 }
 
@@ -428,15 +432,25 @@ setup_firewall() {
 harden_ssh() {
     info "Utwardzanie SSH"
     command -v sshd >/dev/null || { warn "brak sshd, pomijam"; return; }
-    # Refuse unless someone can still log in with a key afterwards.
-    local admin=${SUDO_USER:-root} home keys
-    home=$(getent passwd "$admin" | cut -d: -f6)
-    keys="$home/.ssh/authorized_keys"
-    if [[ ! -s $keys ]]; then
-        warn "użytkownik $admin nie ma kluczy w $keys - NIE wyłączam haseł (zablokowałbyś sobie dostęp)"
-        warn "dodaj klucz (ssh-copy-id $admin@serwer) i uruchom ponownie z --harden-ssh"
+    # Refuse unless an administrator (root or a sudo/wheel member) can still
+    # log in with a key afterwards. Run as root after `sudo -i`, SUDO_USER is
+    # empty, so all administrators are checked.
+    local admins=() with_keys=() user home
+    [[ -n ${SUDO_USER:-} ]] && admins+=("$SUDO_USER")
+    admins+=(root)
+    for user in $(getent group sudo wheel | cut -d: -f4 | tr ',' ' '); do
+        admins+=("$user")
+    done
+    for user in "${admins[@]}"; do
+        home=$(getent passwd "$user" | cut -d: -f6)
+        [[ -n $home && -s $home/.ssh/authorized_keys ]] && with_keys+=("$user")
+    done
+    if (( ${#with_keys[@]} == 0 )); then
+        warn "żaden administrator (root ani członek sudo) nie ma klucza SSH - NIE wyłączam haseł (zablokowałbyś sobie dostęp)"
+        warn "dodaj klucz (ssh-copy-id użytkownik@serwer) i uruchom ponownie z --harden-ssh"
         return
     fi
+    ok "logowanie kluczem SSH mają: $(printf '%s\n' "${with_keys[@]}" | sort -u | tr '\n' ' ')"
     grep -qiE '^\s*Include\s+/etc/ssh/sshd_config.d/' /etc/ssh/sshd_config \
         || { warn "sshd_config nie wczytuje sshd_config.d - pomijam (dodaj ustawienia ręcznie)"; return; }
     mkdir -p /etc/ssh/sshd_config.d
@@ -596,7 +610,7 @@ case $MODE in
         [[ $AUTO_UPDATES == 1 ]] && setup_auto_updates
         start_service
         echo "$(date -Is) $(logname 2>/dev/null || echo root) install port=$PORT" >>"$ADMIN_LOG"
-        offer_panel_user
+        setup_panel
         write_credentials
         if [[ $HARDEN_SSH == 0 || $FAIL2BAN == 0 ]]; then
             echo

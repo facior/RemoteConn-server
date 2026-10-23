@@ -217,13 +217,32 @@ fn ask_new_password(from_stdin: bool) -> Result<String> {
         users::check_password(&password)?;
         return Ok(password);
     }
-    let first = rpassword::prompt_password("New password: ")?;
-    users::check_password(&first)?;
-    let second = rpassword::prompt_password("Repeat password: ")?;
-    if first != second {
-        return Err("passwords differ".into());
+    // Interactive (installer, rc-admin): ask again instead of giving up.
+    for _ in 0..5 {
+        let first = rpassword::prompt_password(format!(
+            "Hasło do panelu (min. {} znaków): ",
+            users::MIN_PASSWORD_LEN
+        ))?;
+        if first.chars().count() < users::MIN_PASSWORD_LEN {
+            eprintln!(
+                "  Za krótkie: {} znaków, potrzeba co najmniej {}. Spróbuj jeszcze raz.",
+                first.chars().count(),
+                users::MIN_PASSWORD_LEN
+            );
+            continue;
+        }
+        if let Err(e) = users::check_password(&first) {
+            eprintln!("  {e}");
+            continue;
+        }
+        let second = rpassword::prompt_password("Powtórz hasło: ")?;
+        if first != second {
+            eprintln!("  Hasła się różnią. Spróbuj jeszcze raz.");
+            continue;
+        }
+        return Ok(first);
     }
-    Ok(first)
+    Err("nie ustawiono hasła (za dużo prób)".into())
 }
 
 fn panel_user(args: &[&str]) -> Result<()> {
@@ -267,8 +286,7 @@ fn panel_user(args: &[&str]) -> Result<()> {
                 },
             );
             users::save(&dir, &all)?;
-            println!("created: {name}");
-            println!("enable 2FA with: rc-server panel-user totp {name}");
+            println!("Utworzono konto panelu: {name}");
         }
         ["passwd", name] => {
             let password = ask_new_password(from_stdin)?;
@@ -283,11 +301,14 @@ fn panel_user(args: &[&str]) -> Result<()> {
             }
             let secret = totp::generate_secret();
             let uri = totp::otpauth_uri(&secret, name, "RemoteConn");
-            println!("Scan this QR code with an authenticator app (Google Authenticator, Aegis, 1Password...):\n");
+            println!(
+                "Zeskanuj kod QR aplikacją uwierzytelniającą na telefonie\n\
+                 (Google Authenticator, Microsoft Authenticator, Aegis, 1Password…):\n"
+            );
             if qr2term::print_qr(&uri).is_err() {
                 println!("{uri}");
             }
-            println!("\nOr enter the key by hand: {secret}\n");
+            println!("\nAlbo wpisz klucz ręcznie: {secret}\n");
             let now = || {
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -295,22 +316,27 @@ fn panel_user(args: &[&str]) -> Result<()> {
                     .unwrap_or_default()
             };
             let mut confirmed = false;
-            for _ in 0..3 {
+            for _ in 0..5 {
                 let mut code = String::new();
-                eprint!("Code from the app: ");
+                eprint!("6-cyfrowy kod z aplikacji: ");
                 std::io::stdin().read_line(&mut code)?;
                 if totp::verify(&secret, &code, now()).is_some() {
                     confirmed = true;
                     break;
                 }
-                eprintln!("wrong code (check the phone's clock)");
+                eprintln!(
+                    "  Nieprawidłowy kod. Wpisz aktualny (zmienia się co 30 s); sprawdź też, czy zegar \
+                     telefonu jest ustawiony automatycznie."
+                );
             }
             if !confirmed {
-                return Err("2FA not enabled".into());
+                return Err("2FA nie zostało włączone".into());
             }
             all.get_mut(*name).ok_or("no such account")?.totp = Some(secret);
             users::save(&dir, &all)?;
-            println!("2FA enabled: {name}");
+            println!(
+                "Włączono 2FA dla konta {name}. Przy logowaniu do panelu podaj kod z aplikacji."
+            );
         }
         ["totp-off", name] => {
             all.get_mut(*name).ok_or("no such account")?.totp = None;
